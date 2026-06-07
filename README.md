@@ -110,13 +110,29 @@ In the Vapi dashboard:
    const VAPI_ASSISTANT_ID = "...";
    ```
 
-### ⚠️ Verify the Vapi web SDK first (most likely thing to break)
-`index.html` loads `@vapi-ai/web` via CDN and expects `window.Vapi` plus events
-`call-start`, `call-end`, `speech-start`, `speech-end`, `volume-level`, and `message`
-(transcripts). **APIs drift — confirm against the current Vapi Web SDK docs** before you
-rely on it. If the global isn't `window.Vapi`, or event names differ, fix the small block at
-the bottom of `index.html`. Test the call button in isolation (you should hear the agent and
-see the mic dot turn red) BEFORE wiring the demo script. This is your H0–1.5 gate.
+### Vapi web SDK — how it's loaded (verified)
+`@vapi-ai/web` is an **ESM module**, so `index.html` imports it via jsDelivr `+esm` and
+exposes it as `window.Vapi`:
+```html
+<script type="module">
+  import Vapi from "https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/+esm";
+  window.Vapi = Vapi;
+</script>
+```
+Then `new Vapi(PUBLIC_KEY)` + `vapi.start(ASSISTANT_ID)` and the events `call-start`,
+`call-end`, `speech-start`, `speech-end`, `volume-level`, `message` (confirmed against the
+Vapi docs). The module load + `typeof window.Vapi === "object"` are verified by `verify.mjs`.
+**Still do the live mic test** (hear the agent + mic dot turns red) before wiring the script —
+that's the one thing only a real call with your keys can prove. This is your H0–1.5 gate.
+
+### Headless self-check
+`node verify.mjs` drives real Chrome (via `puppeteer-core` + your installed Google Chrome),
+runs the full fallback script through the UI, asserts the cards render + WebGL is live + no
+console errors, and writes `verify.png`. Run it after any frontend change:
+```bash
+./.venv/bin/python -m uvicorn main:app --port 8000 &   # server must be up
+node verify.mjs && open verify.png
+```
 
 The webhook payload parsing (`parse_tool_calls` in `main.py`) is already defensive about
 `toolCallList` vs `toolCalls` and string-vs-object arguments — but eyeball one real payload

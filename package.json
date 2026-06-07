@@ -1,0 +1,17 @@
+{
+  "name": "voice-prd",
+  "version": "1.0.0",
+  "description": "Voice-to-Workflow PRD Generator — voice agent builds a validated PRD live via tool calls.",
+  "type": "module",
+  "scripts": {
+    "verify": "node verify.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SHAFF622/voice-prd.git"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "puppeteer-core": "^25.1.0"
+  }
+}
