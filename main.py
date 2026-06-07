@@ -51,10 +51,17 @@ async def broadcast(session_id: str) -> None:
 # Each tool mutates the PRD and advances the stage. Keep them trivial.
 
 def add_requirement(prd: PRD, title: str, detail: str = "", priority: str = "must") -> str:
-    prd.requirements.append(
-        Requirement(id=str(uuid.uuid4())[:8], title=title, detail=detail,
-                    priority=priority if priority in ("must", "should", "could") else "must"))
     prd.stage = Stage.GATHERING_INTENT
+    pri = priority if priority in ("must", "should", "could") else "must"
+    # Upsert by title so re-stating a requirement updates it instead of duplicating.
+    existing = next((r for r in prd.requirements if r.title.lower() == title.lower()), None)
+    if existing:
+        if detail:
+            existing.detail = detail
+        existing.priority = pri
+        return f"Updated requirement: {title}"
+    prd.requirements.append(
+        Requirement(id=str(uuid.uuid4())[:8], title=title, detail=detail, priority=pri))
     return f"Added requirement: {title}"
 
 
@@ -82,14 +89,27 @@ def add_data_model(prd: PRD, name: str, fields: list | None = None,
 
 
 def add_integration(prd: PRD, name: str, purpose: str = "") -> str:
-    prd.integrations.append(Integration(name=name, purpose=purpose))
     prd.stage = Stage.INTEGRATIONS
+    # Upsert by name so re-mentioning an integration updates it instead of duplicating.
+    existing = next((i for i in prd.integrations if i.name.lower() == name.lower()), None)
+    if existing:
+        if purpose:
+            existing.purpose = purpose
+        return f"Updated integration: {name}"
+    prd.integrations.append(Integration(name=name, purpose=purpose))
     return f"Mapped integration: {name}"
 
 
 def flag_compliance(prd: PRD, name: str, trigger: str, accepted: bool = False) -> str:
-    prd.compliance.append(ComplianceGate(name=name, trigger=trigger, accepted=bool(accepted)))
     prd.stage = Stage.COMPLIANCE
+    # Upsert by name so re-flagging a gate (e.g. founder later accepts it) updates it.
+    existing = next((c for c in prd.compliance if c.name.lower() == name.lower()), None)
+    if existing:
+        if trigger:
+            existing.trigger = trigger
+        existing.accepted = bool(accepted)
+        return f"Updated compliance gate: {name}"
+    prd.compliance.append(ComplianceGate(name=name, trigger=trigger, accepted=bool(accepted)))
     return f"Flagged compliance gate: {name}"
 
 
