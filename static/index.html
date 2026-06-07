@@ -145,10 +145,12 @@
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
 </script>
 <script type="module" src="/scene.js"></script>
-<!-- @vapi-ai/web is an ESM module — import it and expose the class globally -->
+<!-- @vapi-ai/web ships as CJS wrapped for ESM: the +esm default is a module object
+     ({__esModule, default: <class>}), so unwrap .default to get the real constructor. -->
 <script type="module">
-  import Vapi from "https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/+esm";
-  window.Vapi = Vapi;
+  import Mod from "https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/+esm";
+  window.Vapi = (Mod && Mod.default) ? Mod.default : Mod;
+  console.log("[vapi] loaded; typeof window.Vapi =", typeof window.Vapi);
 </script>
 
 <script>
