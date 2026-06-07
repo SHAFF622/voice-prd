@@ -23,6 +23,9 @@
          border-bottom:1px solid var(--line);background:rgba(15,15,26,.7);backdrop-filter:blur(8px)}
   header h1{font-size:14px;letter-spacing:.22em;color:var(--accent);margin:0;font-weight:600}
   .stage{font-size:12px;color:var(--green);letter-spacing:.08em}
+  .count{font-size:12px;color:var(--mut);letter-spacing:.08em;
+         padding:3px 10px;border:1px solid var(--line);border-radius:99px}
+  .count b{color:var(--ink);font-weight:600}
   .spacer{flex:1}
   button{font:inherit;color:var(--ink);background:#1a1a2c;border:1px solid var(--line);
          border-radius:8px;padding:7px 13px;cursor:pointer;transition:.15s}
@@ -38,10 +41,10 @@
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(239,68,68,.55)}
                    70%{box-shadow:0 0 0 9px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}
 
-  /* 3-pane layout */
-  main{display:grid;grid-template-columns:24% 1fr 36%;height:calc(100vh - 53px)}
+  /* 2-pane layout: transcript + the voice-reactive human */
+  main{display:grid;grid-template-columns:300px 1fr;height:calc(100vh - 53px)}
   .rail{border-right:1px solid var(--line);padding:16px;overflow-y:auto;background:#0a0a14}
-  .rail h2,.center h2,.cc h2{font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--mut);margin:0 0 12px}
+  .rail h2,.center h2{font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--mut);margin:0 0 12px}
   .center{position:relative;overflow:hidden}
   #scene{position:absolute;inset:0;width:100%;height:100%;display:block}
   .center .label{position:absolute;bottom:16px;left:0;right:0;text-align:center;
@@ -50,21 +53,7 @@
   /* transcript */
   .utt{margin:0 0 10px;padding-left:12px;border-left:2px solid var(--line);color:#c8c8e0}
   .utt .who{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.1em}
-
-  /* command center */
-  .cc{border-left:1px solid var(--line);padding:16px;overflow-y:auto;background:var(--panel)}
-  .group{margin-bottom:18px}
-  .card{background:#15151f;border:1px solid var(--line);border-radius:9px;padding:9px 12px;
-        margin:8px 0;animation:pop .4s cubic-bezier(.2,.9,.3,1.3)}
-  .card b{color:#fff}
-  .card small{color:var(--mut)}
-  .pill{font-size:10px;padding:1px 7px;border-radius:99px;border:1px solid var(--line);color:var(--mut)}
-  .field{display:inline-block;margin:3px 6px 0 0;font-size:12px;color:#c8c8e0}
-  .field.pii{color:var(--orange)}
-  .card.gate{border-color:var(--amber)}
-  .card.dm{border-color:#3a3a6a}
   .empty{color:#44445e;font-style:italic;font-size:12px}
-  @keyframes pop{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
 
   .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--accent);
          color:#0a0a14;font-weight:600;padding:9px 16px;border-radius:9px;opacity:0;transition:.25s;pointer-events:none}
@@ -92,6 +81,7 @@
 <header>
   <h1>PRD COMMAND CENTER</h1>
   <span class="stage" id="stage">▸ idle</span>
+  <span class="count" id="count"><b>0</b> captured</span>
   <span class="spacer"></span>
   <div class="mic" id="mic"><span class="dot"></span><span id="micLabel">mic off</span></div>
   <button class="primary" id="callBtn">Start call</button>
@@ -108,14 +98,7 @@
 
   <section class="center">
     <canvas id="scene"></canvas>
-    <div class="label">procedural core · reacts to voice in real time</div>
-  </section>
-
-  <section class="cc">
-    <div class="group"><h2>Requirements</h2><div id="requirements"></div></div>
-    <div class="group"><h2>Data Models</h2><div id="data_models"></div></div>
-    <div class="group"><h2>Integrations</h2><div id="integrations"></div></div>
-    <div class="group"><h2>Compliance Gates</h2><div id="compliance"></div></div>
+    <div class="label">procedural human · reacts to voice in real time</div>
   </section>
 </main>
 
@@ -163,6 +146,7 @@ const $ = id => document.getElementById(id);
 
 // ---------------- WebSocket: render PRD on every update ----------------
 let lastCount = 0;
+let latestPRD = null;           // last full PRD from the socket — export/copy build from this
 function connectWS(){
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws/${sid}`);
@@ -171,38 +155,16 @@ function connectWS(){
 }
 connectWS();
 
-function card(html, cls=""){ return `<div class="card ${cls}">${html}</div>`; }
-
 function render(p){
+  latestPRD = p;
   $("stage").textContent = "▸ " + p.stage.replace(/_/g," ").toLowerCase();
 
-  $("requirements").innerHTML = p.requirements.length
-    ? p.requirements.map(r => card(
-        `<span class="pill">${r.priority}</span> <b>${esc(r.title)}</b>`
-        + (r.detail ? `<br><small>${esc(r.detail)}</small>` : ""))).join("")
-    : `<div class="empty">none yet</div>`;
-
-  $("data_models").innerHTML = p.data_models.length
-    ? p.data_models.map(m => card(
-        `<b>${esc(m.name)}</b>` + (m.rls_policy ? ` <small>🔒 ${esc(m.rls_policy)}</small>` : "")
-        + `<br>` + m.fields.map(f =>
-            `<span class="field ${f.pii?'pii':''}">${esc(f.name)}:${esc(f.type)}${f.pii?' ⚠':''}</span>`
-          ).join(""), "dm")).join("")
-    : `<div class="empty">none yet</div>`;
-
-  $("integrations").innerHTML = p.integrations.length
-    ? p.integrations.map(i => card(`<b>${esc(i.name)}</b>`
-        + (i.purpose ? ` — <small>${esc(i.purpose)}</small>` : ""))).join("")
-    : `<div class="empty">none yet</div>`;
-
-  $("compliance").innerHTML = p.compliance.length
-    ? p.compliance.map(c => card(
-        `<b>${esc(c.name)}</b> ${c.accepted?'✅':'⏳'}<br><small>${esc(c.trigger)}</small>`, "gate")).join("")
-    : `<div class="empty">none yet</div>`;
-
-  // feed the 3D core: emit a node whenever the total item count grows
+  // structured data now lives in the export (.md) — the UI just tracks how much we've captured
   const total = p.requirements.length + p.data_models.length
               + p.integrations.length + p.compliance.length;
+  $("count").innerHTML = `<b>${total}</b> captured`;
+
+  // feed the 3D human: emit an orbiting node whenever the total item count grows
   if (window.SCENE){
     if (total > lastCount) window.SCENE.emitNodes(total - lastCount);
     window.SCENE.setStage(p.stage);
@@ -212,11 +174,39 @@ function render(p){
 function esc(s){ return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
 // ---------------- export / copy / reset ----------------
-async function getMarkdown(){
-  const r = await fetch(`/export/${sid}.md`);
-  return await r.text();
+// Build the artifact in the browser from the live PRD (mirrors schema.py::to_markdown). This
+// is deployment-independent — no server round-trip — so Export/Copy work even behind a proxy
+// or static host. Falls back to the server route only if we haven't received state yet.
+function buildMarkdown(p){
+  const L = [`# PRD: ${p.project_name}`, "",
+             `_Stage: ${p.stage.replace(/_/g," ")}_`, "", "## Requirements"];
+  for (const r of p.requirements)
+    L.push(`- **[${r.priority.toUpperCase()}] ${r.title}**` + (r.detail ? ` — ${r.detail}` : ""));
+  L.push("", "## Data Models");
+  for (const m of p.data_models){
+    L.push(`- **${m.name}**` + (m.rls_policy ? `  _(RLS: ${m.rls_policy})_` : ""));
+    for (const f of m.fields) L.push(`    - \`${f.name}\`: ${f.type}${f.pii ? " ⚠️ PII" : ""}`);
+  }
+  L.push("", "## Integrations");
+  for (const i of p.integrations) L.push(`- **${i.name}**` + (i.purpose ? ` — ${i.purpose}` : ""));
+  L.push("", "## Compliance Gates");
+  for (const c of p.compliance)
+    L.push(`- **${c.name}** (${c.accepted ? "✅ accepted" : "⏳ pending"}) — triggered by: _${c.trigger}_`);
+  L.push("");
+  return L.join("\n");
 }
-$("exportBtn").onclick = () => { window.location = `/export/${sid}.md`; };
+async function getMarkdown(){
+  if (latestPRD) return buildMarkdown(latestPRD);
+  return await (await fetch(`/export/${sid}.md`)).text();   // pre-socket fallback
+}
+$("exportBtn").onclick = async () => {
+  const md = await getMarkdown();
+  const url = URL.createObjectURL(new Blob([md], { type: "text/markdown" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: `${sid}-prd.md` });
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  toast("Exported " + sid + "-prd.md");
+};
 $("copyBtn").onclick = async () => {
   await navigator.clipboard.writeText(await getMarkdown());
   toast("Markdown copied — paste into Notion");

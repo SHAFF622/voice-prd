@@ -28,9 +28,10 @@ Vapi web call --tool call--> POST /vapi/webhook --> mutate PRD --> SQLite --> WS
 - `schema.py` — Pydantic PRD models + `to_markdown()`
 - `state.py` — in-memory cache + SQLite mirror (the durability story)
 - `main.py` — FastAPI: `/vapi/webhook`, `/ws/{sid}`, `/export/{sid}.md`, `/api/reset/{sid}`
-- `static/index.html` — Command Center, transcript rail, recording visual, Vapi wiring,
-  type-to-trigger Plan C fallback panel (backtick toggles it)
-- `static/scene.js` — procedural Three.js core + GSAP (no Blender assets)
+- `static/index.html` — transcript rail, "N captured" counter, recording visual, client-side
+  markdown export/copy, Vapi wiring, type-to-trigger Plan C fallback panel (backtick toggles it)
+- `static/scene.js` — procedural Three.js humanoid (head/jaw/voice-orb react to volume) + GSAP
+  (no Blender assets)
 - `verify.mjs` — headless Chrome self-check (see below)
 
 ## Vapi notes (verified, but APIs drift — re-check if it breaks)

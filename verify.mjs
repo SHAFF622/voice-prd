@@ -27,19 +27,24 @@ await new Promise(r => setTimeout(r, 300));
 await page.evaluate(() => document.getElementById("runAll").click());
 await new Promise(r => setTimeout(r, 7000)); // let all 5 steps fire + animate
 
-const state = await page.evaluate(() => ({
-  cards: document.querySelectorAll(".card").length,
-  reqs: document.querySelectorAll("#requirements .card").length,
-  models: document.querySelectorAll("#data_models .card").length,
-  integrations: document.querySelectorAll("#integrations .card").length,
-  gates: document.querySelectorAll("#compliance .card").length,
-  stage: document.getElementById("stage")?.textContent,
-  canvasHasGL: (() => { const c = document.getElementById("scene");
-    return !!(c && (c.getContext("webgl2") || c.getContext("webgl"))); })(),
-  threeNodes: window.SCENE ? "SCENE present" : "SCENE MISSING",
-  vapiLoaded: typeof window.Vapi,
-  gsapLoaded: typeof window.gsap,
-}));
+// The card column was removed (structured data lives in export.md now); assert the captured
+// PRD via the API + the header counter instead of counting card DOM nodes.
+const state = await page.evaluate(async () => {
+  const prd = await fetch("/api/prd/verify").then(r => r.json());
+  return {
+    reqs: prd.requirements.length,
+    models: prd.data_models.length,
+    integrations: prd.integrations.length,
+    gates: prd.compliance.length,
+    counter: document.getElementById("count")?.textContent,
+    stage: document.getElementById("stage")?.textContent,
+    canvasHasGL: (() => { const c = document.getElementById("scene");
+      return !!(c && (c.getContext("webgl2") || c.getContext("webgl"))); })(),
+    threeNodes: window.SCENE ? "SCENE present" : "SCENE MISSING",
+    vapiLoaded: typeof window.Vapi,
+    gsapLoaded: typeof window.gsap,
+  };
+});
 
 await page.evaluate(() => document.getElementById("panel").classList.add("open"));
 await new Promise(r => setTimeout(r, 400));

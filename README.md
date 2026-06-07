@@ -193,5 +193,6 @@ mirror (`state.py`); the structured extraction is the tool calls themselves.
 - `schema.py` — Pydantic PRD models + `to_markdown()`
 - `state.py` — in-memory cache + SQLite mirror (the durability story)
 - `main.py` — FastAPI: `/vapi/webhook`, `/ws/{sid}`, `/export/{sid}.md`, `/api/reset/{sid}`
-- `static/index.html` — Command Center + transcript rail + recording visual + Vapi wiring
-- `static/scene.js` — procedural Three.js core + GSAP reactions
+- `static/index.html` — transcript rail + "N captured" counter + recording visual +
+  client-side markdown export/copy + Vapi wiring
+- `static/scene.js` — procedural Three.js humanoid + GSAP reactions (head/jaw/voice-orb track volume)
