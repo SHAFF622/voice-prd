@@ -5,3 +5,4 @@ prd.db
 .DS_Store
 node_modules/
 verify.png
+static/config.js

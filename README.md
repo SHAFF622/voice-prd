@@ -104,11 +104,17 @@ In the Vapi dashboard:
 ```
 </details>
 
-3. Copy your **Public Key** and **Assistant ID** into the top of `static/index.html`:
-   ```js
-   const VAPI_PUBLIC_KEY   = "...";
-   const VAPI_ASSISTANT_ID = "...";
+3. Put your **Public Key** and **Assistant ID** in a **gitignored** `static/config.js`
+   (so keys never hit the public repo):
+   ```bash
+   cp static/config.example.js static/config.js
+   # then edit static/config.js:
+   #   window.VAPI_PUBLIC_KEY   = "pk_...";
+   #   window.VAPI_ASSISTANT_ID = "your-assistant-id";
    ```
+   `index.html` reads `window.VAPI_*` at runtime; the server returns empty JS if
+   `config.js` is absent, so fresh clones get no 404 and still run the fallback panel.
+   Use the **Public** key (client-side); never put the Private key in the browser.
 
 ### Vapi web SDK — how it's loaded (verified)
 `@vapi-ai/web` is an **ESM module**, so `index.html` imports it via jsDelivr `+esm` and

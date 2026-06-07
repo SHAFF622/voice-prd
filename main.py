@@ -12,10 +12,11 @@ Vapi docs at build time. If the shape differs, adjust `parse_tool_calls` / `vapi
 """
 import asyncio
 import json
+import os
 import uuid
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi.responses import PlainTextResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 import state
@@ -177,6 +178,17 @@ async def api_reset(session_id: str):
     state.reset(session_id)
     await broadcast(session_id)
     return JSONResponse({"ok": True})
+
+
+@app.get("/config.js")
+async def config_js():
+    """Serve gitignored static/config.js if present, else empty JS (no 404 on fresh
+    clones). Keeps Vapi keys out of git: edit static/config.js locally."""
+    path = os.path.join("static", "config.js")
+    if os.path.exists(path):
+        return FileResponse(path, media_type="application/javascript")
+    return PlainTextResponse("/* no static/config.js — using placeholders */",
+                             media_type="application/javascript")
 
 
 # Static dashboard last so it doesn't shadow the API routes above.

@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PRD Command Center</title>
 <link rel="icon" href="data:,">  <!-- silence favicon 404 -->
+<!-- gitignored local keys (copy static/config.example.js -> static/config.js). Loads
+     before the app script; server returns empty JS if the file is absent (no 404). -->
+<script src="/config.js"></script>
 
 <style>
   :root{
@@ -149,9 +152,9 @@
 </script>
 
 <script>
-// ----- config: fill these in from the Vapi dashboard (see README) -----
-const VAPI_PUBLIC_KEY  = "YOUR_VAPI_PUBLIC_KEY";
-const VAPI_ASSISTANT_ID = "YOUR_VAPI_ASSISTANT_ID";
+// ----- config: set these in static/config.js (gitignored). See README. -----
+const VAPI_PUBLIC_KEY   = window.VAPI_PUBLIC_KEY   || "YOUR_VAPI_PUBLIC_KEY";
+const VAPI_ASSISTANT_ID = window.VAPI_ASSISTANT_ID || "YOUR_VAPI_ASSISTANT_ID";
 
 const sid = new URLSearchParams(location.search).get("s") || "demo";
 const $ = id => document.getElementById(id);
