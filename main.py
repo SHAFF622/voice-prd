@@ -28,6 +28,11 @@ app = FastAPI(title="Voice PRD")
 # session_id -> set of connected dashboard sockets
 _sockets: dict[str, set[WebSocket]] = {}
 
+# The dashboard session voice tool calls should write to. Vapi tags tool calls with its
+# own call UUID, but the browser/export use a fixed session (default "demo"), so we route
+# voice writes to whichever dashboard is currently open instead of the Vapi call id.
+_active_session: str = "demo"
+
 
 async def broadcast(session_id: str) -> None:
     prd = state.get(session_id)
@@ -122,10 +127,12 @@ async def vapi_webhook(req: Request):
     if mtype not in ("tool-calls", "function-call", None) and "toolCallList" not in msg:
         return JSONResponse({})
 
-    session_id, calls = parse_tool_calls(body)
+    _, calls = parse_tool_calls(body)
     if not calls:
         return JSONResponse({})
 
+    # Write to the open dashboard session, not Vapi's call id, so voice + UI + export agree.
+    session_id = _active_session
     prd = state.get(session_id)
     results = []
     for call_id, name, args in calls:
@@ -147,7 +154,9 @@ async def vapi_webhook(req: Request):
 # ------------------------------------------------------------------ websocket
 @app.websocket("/ws/{session_id}")
 async def ws(websocket: WebSocket, session_id: str):
+    global _active_session
     await websocket.accept()
+    _active_session = session_id          # voice tool calls now route to this dashboard
     _sockets.setdefault(session_id, set()).add(websocket)
     # Send full state on connect -> live "resume" when the page (re)loads.
     await websocket.send_text(state.get(session_id).model_dump_json())
