@@ -1,14 +1,22 @@
-// Procedural Three.js centerpiece — NO Blender assets. A glowing wireframe HUMANOID
-// that breathes, turns, and reacts to voice: the head/jaw move and a "voice orb" at the
-// mouth swells with speech volume. Each PRD item spawns a node orbiting the figure.
-// GSAP drives every transition. Exposed as window.SCENE for the page to drive.
+// Three.js centerpiece: a realistic Ready Player Me avatar, studio-lit, that idles + blinks
+// and lip-syncs to the agent's voice. Vapi gives us amplitude (volume-level), not phonemes,
+// so the mouth is driven by smoothed volume on the ARKit `jawOpen` morph (+ a little viseme
+// jitter) — which reads clearly as talking. Each PRD item spawns a soft mote orbiting the
+// figure. Exposed as window.SCENE for the page to drive.
 //
-// Graceful degradation: if WebGL can't start (projector quirk, disabled hardware
-// accel, driver issue on the demo machine), we install a no-op SCENE so the rest of
-// the page keeps working and show a subtle note — the module never throws on stage.
+// Graceful degradation: if WebGL can't start, or the avatar GLB can't load (e.g. offline /
+// DNS-blocked), we keep the page alive — the module never throws on stage.
 import * as THREE from "three";
+import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
+import { DRACOLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/DRACOLoader.js";
+import { MeshoptDecoder } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/meshopt_decoder.module.js";
+import { RoomEnvironment } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/environments/RoomEnvironment.js";
+
+// Avatar source: user override → bundled local GLB → public RPM URL (needs internet).
+const AVATAR_URL = window.RPM_AVATAR_URL || "/avatar.glb";
 
 const canvas = document.getElementById("scene");
+const label = document.querySelector(".center .label");
 const noop = () => {};
 const NOOP_SCENE = { emitNodes: noop, pulse: noop, calm: noop, setVolume: noop,
                      setStage: noop, reset: noop };
@@ -23,9 +31,8 @@ function webglOK() {
 
 if (!webglOK()) {
   window.SCENE = NOOP_SCENE;
-  const note = document.querySelector(".center .label");
-  if (note) note.textContent = "3D core unavailable (WebGL off) — dashboard fully live";
-  console.warn("WebGL unavailable — running without the 3D core.");
+  if (label) label.textContent = "3D unavailable (WebGL off) — dashboard fully live";
+  console.warn("WebGL unavailable — running without the 3D avatar.");
 } else {
   try { initScene(); }
   catch (e) {
@@ -37,11 +44,24 @@ if (!webglOK()) {
 function initScene() {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setClearColor(0x000000, 0);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
-  camera.position.set(0, 0.8, 7);
-  camera.lookAt(0, 0.8, 0);
+  const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 100);
+  camera.position.set(0, 1.5, 2.2);          // refined once the avatar's bounds are known
+  camera.lookAt(0, 1.45, 0);
+
+  // ---- studio lighting: soft env for PBR + a key and rim so the face reads on black ----
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.add(new THREE.HemisphereLight(0xdfe6ff, 0x141422, 0.6));
+  const key = new THREE.DirectionalLight(0xffffff, 2.1);
+  key.position.set(1.4, 2.4, 2.2); scene.add(key);
+  const rim = new THREE.DirectionalLight(0x9fb4ff, 1.6);
+  rim.position.set(-2.0, 1.8, -2.4); scene.add(rim);
 
   function resize() {
     const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -51,148 +71,135 @@ function initScene() {
   new ResizeObserver(resize).observe(canvas);
   resize();
 
-  // ---- the figure: a glowing wireframe humanoid from primitives ----
-  // Built as dark translucent fills with bright wireframe overlays, matching the old core's
-  // palette. Grouped so the whole body breathes/turns; the head is its own sub-group so it
-  // can bob and the jaw/voice-orb can move independently with speech.
-  const coreGroup = new THREE.Group();   // name kept: the page + tweens drive coreGroup
-  coreGroup.position.y = -0.2;
-  scene.add(coreGroup);
+  // ---- shared state driven from the page (read by the render loop) ----
+  const state = { talk: 0 };                 // 0 idle … 1 actively speaking
+  let volume = 0, smoothVol = 0, appliedMouth = 0;
 
-  const WIRE = 0x7c7cff, FILL = 0x1a1a3a;
-  const wires = [];                      // every wireframe material, so volume can brighten all
+  // ---- the avatar (loaded async) ----
+  let avatar = null;                         // root group once loaded
+  let morphMeshes = [];                      // meshes carrying ARKit/viseme morphs
+  let bones = {};                            // Head / Neck / Spine2 for idle motion
+  let blinkT = 2 + Math.random() * 3;        // seconds until next blink
 
-  // body part: fill mesh + wireframe overlay, added to a parent group at (x,y,z)
-  function part(geometry, parent, x = 0, y = 0, z = 0, fillOpacity = 0.5) {
-    const fill = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
-      color: FILL, transparent: true, opacity: fillOpacity }));
-    const wire = new THREE.LineSegments(new THREE.WireframeGeometry(geometry),
-      new THREE.LineBasicMaterial({ color: WIRE, transparent: true, opacity: 0.85 }));
-    const g = new THREE.Group();
-    g.add(fill, wire); g.position.set(x, y, z);
-    parent.add(g); wires.push(wire.material);
-    return g;
+  function setMorph(name, v) {
+    for (const m of morphMeshes) {
+      const i = m.morphTargetDictionary[name];
+      if (i !== undefined) m.morphTargetInfluences[i] = v;
+    }
   }
 
-  // torso (tapered: narrower at the waist), shoulders, hips, arms
-  part(new THREE.CylinderGeometry(0.78, 0.5, 1.7, 14, 1), coreGroup, 0, 0.55, 0);
-  part(new THREE.SphereGeometry(0.82, 16, 12), coreGroup, 0, 1.35, 0, 0.4);   // shoulder yoke
-  part(new THREE.SphereGeometry(0.5, 14, 10), coreGroup, 0, -0.35, 0, 0.4);   // hips
-  for (const s of [-1, 1]) {
-    const arm = part(new THREE.CylinderGeometry(0.16, 0.13, 1.5, 10, 1),
-                     coreGroup, s * 0.92, 0.55, 0);
-    arm.rotation.z = s * 0.18;                                                // slight splay
-  }
+  const draco = new DRACOLoader().setDecoderPath(
+    "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/");
+  const loader = new GLTFLoader().setDRACOLoader(draco).setMeshoptDecoder(MeshoptDecoder);
 
-  // head sub-group (bobs with speech); jaw + voice orb live inside it
-  const head = new THREE.Group();
-  head.position.set(0, 1.95, 0);
-  coreGroup.add(head);
-  part(new THREE.SphereGeometry(0.52, 20, 16), head, 0, 0.18, 0, 0.45);       // skull
-  const jaw = part(new THREE.SphereGeometry(0.3, 14, 10), head, 0, -0.15, 0.12, 0.45);
+  loader.load(AVATAR_URL, (gltf) => {
+    avatar = gltf.scene;
+    avatar.traverse((o) => {
+      if (o.isMesh) {
+        o.frustumCulled = false;             // morphs expand bounds; don't cull the head
+        if (o.morphTargetDictionary) morphMeshes.push(o);
+      }
+      if (o.isBone || o.isObject3D) {
+        if (["Head", "Neck", "Spine2", "Spine1"].includes(o.name)) bones[o.name] = o;
+      }
+    });
 
-  // voice orb: emissive sphere at the mouth that swells + brightens with volume
-  const voiceOrb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16),
-    new THREE.MeshBasicMaterial({ color: 0x9aa0ff, transparent: true, opacity: 0.85 }));
-  voiceOrb.position.set(0, -0.16, 0.46);
-  head.add(voiceOrb);
+    // frame an upper-body presenter shot from the avatar's actual bounds
+    const box = new THREE.Box3().setFromObject(avatar);
+    const center = box.getCenter(new THREE.Vector3());
+    const topY = box.max.y;                   // ~top of head
+    const targetY = topY - 0.42;              // chin / upper chest → head sits high in frame
+    camera.position.set(center.x + 0.1, targetY + 0.06, center.z + 1.55);
+    camera.lookAt(center.x, targetY, center.z);
+    avatar.rotation.y = 0;                     // RPM faces +Z (toward camera)
 
-  // soft inner point cloud around the chest for depth
-  coreGroup.add(new THREE.Points(
-    new THREE.SphereGeometry(0.9, 8, 8),
-    new THREE.PointsMaterial({ color: 0x9aa0ff, size: 0.035, transparent: true, opacity: 0.5 })));
+    setMorph("mouthSmile", 0.12);             // pleasant resting expression
+    scene.add(avatar);
+    if (label) label.textContent = "Ready Player Me avatar · lip-syncs to the voice";
+  }, undefined, (err) => {
+    console.warn("Avatar failed to load (" + AVATAR_URL + "); scene stays live.", err);
+    if (label) label.textContent = "avatar offline — set RPM_AVATAR_URL · dashboard live";
+  });
 
-  // ---- ambient starfield ----
-  const starGeo = new THREE.BufferGeometry();
-  const starN = 350, sp = new Float32Array(starN * 3);
-  for (let i = 0; i < starN * 3; i++) sp[i] = (Math.random() - 0.5) * 30;
-  starGeo.setAttribute("position", new THREE.BufferAttribute(sp, 3));
-  scene.add(new THREE.Points(starGeo,
-    new THREE.PointsMaterial({ color: 0x33335a, size: 0.05 })));
-
-  // ---- orbiting nodes (one per PRD item) ----
-  const SECTION_COLORS = [0x7c7cff, 0x4ade80, 0xfacc15, 0xf97316];
+  // ---- orbiting nodes (one soft mote per PRD item), around the avatar's upper body ----
+  const SECTION_COLORS = [0x9aa0ff, 0x4ade80, 0xfacc15, 0xf97316];
   const nodes = [];
-  const nodeGeo = new THREE.SphereGeometry(0.12, 16, 16);
-
+  const nodeGeo = new THREE.SphereGeometry(0.035, 16, 16);
   function spawnNode() {
     const color = SECTION_COLORS[nodes.length % SECTION_COLORS.length];
-    const m = new THREE.Mesh(nodeGeo,
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0 }));
-    m.userData = { radius: 2.6 + Math.random() * 1.1, speed: 0.15 + Math.random() * 0.25,
-                   phase: Math.random() * Math.PI * 2, tilt: (Math.random() - 0.5) * 1.4 };
-    scene.add(m);
-    nodes.push(m);
+    const m = new THREE.Mesh(nodeGeo, new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+      depthWrite: false }));
+    m.userData = { radius: 0.95 + Math.random() * 0.5, speed: 0.25 + Math.random() * 0.3,
+                   phase: Math.random() * Math.PI * 2, tilt: (Math.random() - 0.5) * 0.5 };
+    scene.add(m); nodes.push(m);
     m.scale.setScalar(0.01);
     gsap.to(m.scale, { x: 1, y: 1, z: 1, duration: 0.6, ease: "back.out(2.5)" });
-    gsap.to(m.material, { opacity: 0.95, duration: 0.5 });
-    SCENE.pulse();   // energize the core whenever a node is born
+    gsap.to(m.material, { opacity: 0.9, duration: 0.5 });
   }
 
-  // ---- state driven from the page ----
-  const state = { spin: 0.15, talk: 0 };   // talk: 0 idle … 1 actively speaking
-  let targetScale = 1, volume = 0;
-
+  // ---- SCENE API (installed immediately; safe to call before the avatar loads) ----
   const SCENE = {
     emitNodes(n) { for (let i = 0; i < n; i++) spawnNode(); },
-    pulse() {
-      gsap.to(state, { spin: 0.45, talk: 1, duration: 0.3, overwrite: true });
-      targetScale = 1.08;
-      gsap.killTweensOf(coreGroup.scale);
-      gsap.to(coreGroup.scale, { x: 1.08, y: 1.08, z: 1.08, duration: 0.25, ease: "power2.out" });
-    },
-    calm() {
-      gsap.to(state, { spin: 0.15, talk: 0, duration: 0.8, overwrite: true });
-      targetScale = 1;
-      gsap.to(coreGroup.scale, { x: 1, y: 1, z: 1, duration: 0.8, ease: "power2.out" });
-    },
+    pulse() { gsap.to(state, { talk: 1, duration: 0.25, overwrite: true }); },
+    calm()  { gsap.to(state, { talk: 0, duration: 0.7, overwrite: true }); },
     setVolume(v) { volume = Math.max(0, Math.min(1, v || 0)); },
-    setStage(_stage) { /* reserved: recolor wire per stage */ },
+    setStage(_stage) { /* reserved */ },
     reset() {
-      nodes.splice(0).forEach(n => {
-        scene.remove(n); n.geometry.dispose?.(); n.material.dispose();
-      });
+      nodes.splice(0).forEach((n) => { scene.remove(n); n.material.dispose(); });
     },
   };
   window.SCENE = SCENE;
 
   // ---- render loop ----
   const clock = new THREE.Clock();
-  let smoothVol = 0;
-  const _v = new THREE.Vector3();
+  const VISEMES = ["viseme_aa", "viseme_E", "viseme_O", "viseme_U", "viseme_I"];
+  let lastViseme = "viseme_aa";
   (function tick() {
-    const t = clock.getElapsedTime();
-    smoothVol += (volume - smoothVol) * 0.25;          // ease the raw mic level
+    const dt = clock.getDelta();
+    const t = clock.elapsedTime;
+    smoothVol += (volume - smoothVol) * 0.3;
+    // Mouth opening comes from speech VOLUME only (no constant "talk" floor that gapes it),
+    // above a small noise gate, gated to the agent's speaking turn. Kept deliberately subtle.
+    const voiceOpen = Math.min(1, Math.max(0, smoothVol - 0.05) / 0.4) * state.talk;
 
-    // gentle human idle: sway + breathing, NOT a fast spin. spin/talk rise while speaking.
-    coreGroup.rotation.y = Math.sin(t * 0.25) * 0.35 + state.spin * 0.1;
-    const breathe = 1 + Math.sin(t * 1.4) * 0.012 * (1 + state.talk);
-    const vScale = targetScale * breathe + smoothVol * 0.12;
-    coreGroup.scale.lerp(_v.setScalar(vScale), 0.12);
+    if (avatar) {
+      // lip-sync: ease toward the target, then apply a discrete jaw drop (never a wide gape)
+      appliedMouth += (voiceOpen - appliedMouth) * 0.3;
+      setMorph("jawOpen", appliedMouth * 0.3);
+      setMorph("mouthOpen", appliedMouth * 0.14);
+      // gently vary the mouth SHAPE with a viseme so it isn't a static "O"
+      if (state.talk > 0.1 && Math.random() < 0.05) {
+        setMorph(lastViseme, 0);
+        lastViseme = VISEMES[(Math.random() * VISEMES.length) | 0];
+      }
+      setMorph(lastViseme, appliedMouth * 0.18);
 
-    // head bob + slight tilt; stronger while speaking and with louder volume
-    const drive = state.talk + smoothVol;
-    head.position.y = 1.95 + Math.sin(t * 2.2) * 0.04 * (0.4 + drive);
-    head.rotation.x = Math.sin(t * 1.1) * 0.05 + smoothVol * 0.12;
-    head.rotation.z = Math.sin(t * 0.6) * 0.04;
+      // blink
+      blinkT -= dt;
+      let blink = 0;
+      if (blinkT < 0.18) blink = 1 - Math.abs(blinkT - 0.09) / 0.09;   // quick close→open
+      if (blinkT < 0) blinkT = 2.5 + Math.random() * 3.5;
+      setMorph("eyeBlinkLeft", blink); setMorph("eyeBlinkRight", blink);
 
-    // jaw drop + voice orb swell/brighten = the "replicating the voice" beat
-    const mouth = Math.min(1, drive);
-    jaw.position.y = -0.15 - mouth * 0.12;
-    jaw.scale.y = 1 + mouth * 0.25;
-    voiceOrb.scale.setScalar(0.5 + mouth * 1.4);
-    voiceOrb.material.opacity = 0.3 + mouth * 0.6;
+      // gentle, life-like idle: breathing sway on the spine + head bob/turn
+      const b = bones, sway = Math.sin(t * 0.9) * 0.025, breath = Math.sin(t * 1.3) * 0.02;
+      if (b.Spine2) { b.Spine2.rotation.x = breath; b.Spine2.rotation.y = sway * 0.6; }
+      if (b.Neck) b.Neck.rotation.y = sway * 0.5;
+      if (b.Head) {
+        b.Head.rotation.y = Math.sin(t * 0.5) * 0.08 + sway;
+        b.Head.rotation.x = Math.sin(t * 0.7) * 0.03 + voiceOpen * 0.03;
+      }
+    }
 
-    // brighten every wireframe with the voice
-    const o = 0.6 + smoothVol * 0.4 + state.talk * 0.15;
-    for (const w of wires) w.opacity = o;
-
+    // motes orbit the upper body (centered on the camera target height)
     for (const n of nodes) {
       const u = n.userData, a = t * u.speed + u.phase;
       n.position.set(Math.cos(a) * u.radius,
-                     Math.sin(a) * u.radius * 0.5 + u.tilt + 0.6,   // orbit centered on torso
-                     Math.sin(a) * u.radius);
+                     1.45 + Math.sin(a * 1.3) * 0.25 + u.tilt,
+                     Math.sin(a) * u.radius * 0.7);
     }
+
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   })();

@@ -30,8 +30,9 @@ Vapi web call --tool call--> POST /vapi/webhook --> mutate PRD --> SQLite --> WS
 - `main.py` — FastAPI: `/vapi/webhook`, `/ws/{sid}`, `/export/{sid}.md`, `/api/reset/{sid}`
 - `static/index.html` — transcript rail, "N captured" counter, recording visual, client-side
   markdown export/copy, Vapi wiring, type-to-trigger Plan C fallback panel (backtick toggles it)
-- `static/scene.js` — procedural Three.js humanoid (head/jaw/voice-orb react to volume) + GSAP
-  (no Blender assets)
+- `static/scene.js` — loads a realistic Ready Player Me GLB avatar (GLTFLoader), studio-lit,
+  that idles/blinks and lip-syncs to Vapi volume (ARKit `jawOpen`/viseme morphs). Avatar is
+  `static/avatar.glb`, overridable via `window.RPM_AVATAR_URL` in `config.js`.
 - `verify.mjs` — headless Chrome self-check (see below)
 
 ## Vapi notes (verified, but APIs drift — re-check if it breaks)
