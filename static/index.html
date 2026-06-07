@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRD Command Center</title>
+<style>
+  :root{
+    --bg:#07070d; --panel:#0f0f1a; --line:#23233a; --ink:#e8e8f5; --mut:#8a8aa8;
+    --accent:#7c7cff; --green:#4ade80; --amber:#facc15; --orange:#f97316;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;height:100vh;overflow:hidden;background:var(--bg);color:var(--ink);
+       font:14px/1.5 ui-monospace,"SF Mono",Menlo,monospace}
+
+  /* top bar */
+  header{display:flex;align-items:center;gap:16px;padding:12px 20px;
+         border-bottom:1px solid var(--line);background:rgba(15,15,26,.7);backdrop-filter:blur(8px)}
+  header h1{font-size:14px;letter-spacing:.22em;color:var(--accent);margin:0;font-weight:600}
+  .stage{font-size:12px;color:var(--green);letter-spacing:.08em}
+  .spacer{flex:1}
+  button{font:inherit;color:var(--ink);background:#1a1a2c;border:1px solid var(--line);
+         border-radius:8px;padding:7px 13px;cursor:pointer;transition:.15s}
+  button:hover{border-color:var(--accent);background:#20203a}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#0a0a14;font-weight:600}
+  button.danger:hover{border-color:var(--orange)}
+
+  /* mic / recording state */
+  .mic{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mut)}
+  .dot{width:11px;height:11px;border-radius:50%;background:#3a3a52;transition:.2s}
+  .mic.live .dot{background:#ef4444;box-shadow:0 0 0 0 rgba(239,68,68,.6);animation:pulse 1.1s infinite}
+  .mic.speaking .dot{background:var(--accent);box-shadow:0 0 0 0 rgba(124,124,255,.6);animation:pulse 1.1s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(239,68,68,.55)}
+                   70%{box-shadow:0 0 0 9px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}
+
+  /* 3-pane layout */
+  main{display:grid;grid-template-columns:24% 1fr 36%;height:calc(100vh - 53px)}
+  .rail{border-right:1px solid var(--line);padding:16px;overflow-y:auto;background:#0a0a14}
+  .rail h2,.center h2,.cc h2{font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--mut);margin:0 0 12px}
+  .center{position:relative;overflow:hidden}
+  #scene{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .center .label{position:absolute;bottom:16px;left:0;right:0;text-align:center;
+                 font-size:11px;color:var(--mut);letter-spacing:.12em;pointer-events:none}
+
+  /* transcript */
+  .utt{margin:0 0 10px;padding-left:12px;border-left:2px solid var(--line);color:#c8c8e0}
+  .utt .who{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.1em}
+
+  /* command center */
+  .cc{border-left:1px solid var(--line);padding:16px;overflow-y:auto;background:var(--panel)}
+  .group{margin-bottom:18px}
+  .card{background:#15151f;border:1px solid var(--line);border-radius:9px;padding:9px 12px;
+        margin:8px 0;animation:pop .4s cubic-bezier(.2,.9,.3,1.3)}
+  .card b{color:#fff}
+  .card small{color:var(--mut)}
+  .pill{font-size:10px;padding:1px 7px;border-radius:99px;border:1px solid var(--line);color:var(--mut)}
+  .field{display:inline-block;margin:3px 6px 0 0;font-size:12px;color:#c8c8e0}
+  .field.pii{color:var(--orange)}
+  .card.gate{border-color:var(--amber)}
+  .card.dm{border-color:#3a3a6a}
+  .empty{color:#44445e;font-style:italic;font-size:12px}
+  @keyframes pop{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
+
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--accent);
+         color:#0a0a14;font-weight:600;padding:9px 16px;border-radius:9px;opacity:0;transition:.25s;pointer-events:none}
+  .toast.show{opacity:1}
+
+  /* type-to-trigger fallback (Plan C) — hidden until toggled with the ` key */
+  #panelToggle{position:fixed;left:14px;bottom:14px;z-index:30;opacity:.4;font-size:11px;padding:5px 9px}
+  #panelToggle:hover{opacity:1}
+  #panel{position:fixed;left:14px;bottom:52px;z-index:30;width:300px;background:#0c0c18;
+         border:1px solid var(--accent);border-radius:12px;padding:14px;display:none;
+         box-shadow:0 10px 40px rgba(0,0,0,.6)}
+  #panel.open{display:block}
+  #panel h3{margin:0 0 4px;font-size:11px;letter-spacing:.14em;color:var(--accent);text-transform:uppercase}
+  #panel p{margin:0 0 10px;font-size:11px;color:var(--mut)}
+  #panel button{display:block;width:100%;text-align:left;margin:6px 0;font-size:12px}
+  #panel .step{counter-increment:step}
+  #panel .step::before{content:counter(step) ". ";color:var(--mut)}
+  #panel{counter-reset:step}
+  #panel .row{display:flex;gap:8px}
+  #panel .row button{margin:6px 0}
+  #panel .run{background:var(--green);border-color:var(--green);color:#072011;font-weight:700}
+</style>
+</head>
+<body>
+<header>
+  <h1>PRD COMMAND CENTER</h1>
+  <span class="stage" id="stage">▸ idle</span>
+  <span class="spacer"></span>
+  <div class="mic" id="mic"><span class="dot"></span><span id="micLabel">mic off</span></div>
+  <button class="primary" id="callBtn">Start call</button>
+  <button id="copyBtn">Copy MD</button>
+  <button id="exportBtn">Export .md</button>
+  <button class="danger" id="resetBtn">Reset</button>
+</header>
+
+<main>
+  <section class="rail">
+    <h2>Transcript</h2>
+    <div id="transcript"><div class="empty">Waiting for the call to start…</div></div>
+  </section>
+
+  <section class="center">
+    <canvas id="scene"></canvas>
+    <div class="label">procedural core · reacts to voice in real time</div>
+  </section>
+
+  <section class="cc">
+    <div class="group"><h2>Requirements</h2><div id="requirements"></div></div>
+    <div class="group"><h2>Data Models</h2><div id="data_models"></div></div>
+    <div class="group"><h2>Integrations</h2><div id="integrations"></div></div>
+    <div class="group"><h2>Compliance Gates</h2><div id="compliance"></div></div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<!-- Plan C: type-to-trigger fallback. Fires the exact MedLegal script via the same
+     /vapi/webhook the voice agent uses, so the dashboard + 3D core react identically.
+     Toggle with the backtick (`) key or the corner button. -->
+<button id="panelToggle">⌨ fallback</button>
+<div id="panel">
+  <h3>Type-to-trigger · Plan C</h3>
+  <p>Same webhook as voice. Use if the mic dies on stage.</p>
+  <button class="run" id="runAll">▶ Run full MedLegal script</button>
+  <button class="step" data-step="0"></button>
+  <button class="step" data-step="1"></button>
+  <button class="step" data-step="2"></button>
+  <button class="step" data-step="3"></button>
+  <button class="step" data-step="4"></button>
+  <div class="row">
+    <button id="panelReset">Reset session</button>
+  </div>
+</div>
+
+<!-- libs -->
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module" src="/scene.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/dist/index.js"></script>
+
+<script>
+// ----- config: fill these in from the Vapi dashboard (see README) -----
+const VAPI_PUBLIC_KEY  = "YOUR_VAPI_PUBLIC_KEY";
+const VAPI_ASSISTANT_ID = "YOUR_VAPI_ASSISTANT_ID";
+
+const sid = new URLSearchParams(location.search).get("s") || "demo";
+const $ = id => document.getElementById(id);
+
+// ---------------- WebSocket: render PRD on every update ----------------
+let lastCount = 0;
+function connectWS(){
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/ws/${sid}`);
+  ws.onmessage = e => render(JSON.parse(e.data));
+  ws.onclose = () => setTimeout(connectWS, 1000);   // auto-reconnect
+}
+connectWS();
+
+function card(html, cls=""){ return `<div class="card ${cls}">${html}</div>`; }
+
+function render(p){
+  $("stage").textContent = "▸ " + p.stage.replace(/_/g," ").toLowerCase();
+
+  $("requirements").innerHTML = p.requirements.length
+    ? p.requirements.map(r => card(
+        `<span class="pill">${r.priority}</span> <b>${esc(r.title)}</b>`
+        + (r.detail ? `<br><small>${esc(r.detail)}</small>` : ""))).join("")
+    : `<div class="empty">none yet</div>`;
+
+  $("data_models").innerHTML = p.data_models.length
+    ? p.data_models.map(m => card(
+        `<b>${esc(m.name)}</b>` + (m.rls_policy ? ` <small>🔒 ${esc(m.rls_policy)}</small>` : "")
+        + `<br>` + m.fields.map(f =>
+            `<span class="field ${f.pii?'pii':''}">${esc(f.name)}:${esc(f.type)}${f.pii?' ⚠':''}</span>`
+          ).join(""), "dm")).join("")
+    : `<div class="empty">none yet</div>`;
+
+  $("integrations").innerHTML = p.integrations.length
+    ? p.integrations.map(i => card(`<b>${esc(i.name)}</b>`
+        + (i.purpose ? ` — <small>${esc(i.purpose)}</small>` : ""))).join("")
+    : `<div class="empty">none yet</div>`;
+
+  $("compliance").innerHTML = p.compliance.length
+    ? p.compliance.map(c => card(
+        `<b>${esc(c.name)}</b> ${c.accepted?'✅':'⏳'}<br><small>${esc(c.trigger)}</small>`, "gate")).join("")
+    : `<div class="empty">none yet</div>`;
+
+  // feed the 3D core: emit a node whenever the total item count grows
+  const total = p.requirements.length + p.data_models.length
+              + p.integrations.length + p.compliance.length;
+  if (window.SCENE){
+    if (total > lastCount) window.SCENE.emitNodes(total - lastCount);
+    window.SCENE.setStage(p.stage);
+  }
+  lastCount = total;
+}
+function esc(s){ return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+// ---------------- export / copy / reset ----------------
+async function getMarkdown(){
+  const r = await fetch(`/export/${sid}.md`);
+  return await r.text();
+}
+$("exportBtn").onclick = () => { window.location = `/export/${sid}.md`; };
+$("copyBtn").onclick = async () => {
+  await navigator.clipboard.writeText(await getMarkdown());
+  toast("Markdown copied — paste into Notion");
+};
+$("resetBtn").onclick = async () => {
+  await fetch(`/api/reset/${sid}`, {method:"POST"});
+  $("transcript").innerHTML = `<div class="empty">reset — start a new call</div>`;
+  lastCount = 0; window.SCENE && window.SCENE.reset();
+};
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.classList.add("show");
+  setTimeout(()=>t.classList.remove("show"), 1800); }
+
+// ---------------- transcript helpers ----------------
+function addUtterance(who, text){
+  const el = $("transcript");
+  if (el.querySelector(".empty")) el.innerHTML = "";
+  const d = document.createElement("div");
+  d.className = "utt";
+  d.innerHTML = `<div class="who">${who}</div>${esc(text)}`;
+  el.appendChild(d); el.scrollTop = el.scrollHeight;
+}
+
+// ---------------- Vapi voice wiring ----------------
+// Event names verified against the Vapi Web SDK; tweak in README if the SDK shifts.
+function micState(cls, label){
+  const m = $("mic"); m.className = "mic" + (cls?(" "+cls):"");
+  $("micLabel").textContent = label;
+}
+let vapi = null;
+$("callBtn").onclick = () => {
+  if (!window.Vapi || VAPI_PUBLIC_KEY.startsWith("YOUR_")){
+    toast("Set VAPI keys in index.html first"); return;
+  }
+  if (vapi){ vapi.stop(); return; }
+  vapi = new window.Vapi(VAPI_PUBLIC_KEY);
+
+  vapi.on("call-start", () => { micState("live","listening"); $("callBtn").textContent="End call"; });
+  vapi.on("call-end",   () => { micState("","mic off"); $("callBtn").textContent="Start call"; vapi=null;
+                                window.SCENE && window.SCENE.calm(); });
+  vapi.on("speech-start", () => { micState("speaking","AI speaking"); window.SCENE && window.SCENE.pulse(); });
+  vapi.on("speech-end",   () => { micState("live","listening");      window.SCENE && window.SCENE.calm(); });
+  vapi.on("volume-level", v => window.SCENE && window.SCENE.setVolume(v));
+  vapi.on("message", m => {
+    if (m.type === "transcript" && m.transcriptType === "final"){
+      addUtterance(m.role === "user" ? "founder" : "agent", m.transcript);
+    }
+  });
+  vapi.on("error", e => { console.error(e); toast("Vapi error — see console"); });
+
+  vapi.start(VAPI_ASSISTANT_ID);
+};
+
+// ---------------- Plan C: type-to-trigger fallback ----------------
+// Each step mirrors a line of the MedLegal demo script and posts tool calls to the
+// SAME /vapi/webhook the voice agent uses -> dashboard + 3D core update identically.
+const SCRIPT = [
+  { label: "Patients upload medical bills",
+    calls: [
+      ["add_data_model", {name:"MedicalBill",
+        fields:["amount:money","patient:fk:Patient","image:file","received:timestamp"]}],
+      ["add_requirement", {title:"Bill upload", detail:"patients upload medical bills",
+        priority:"must"}],
+    ]},
+  { label: "Flag HIPAA gate (founder says yes)",
+    calls: [
+      ["flag_compliance", {name:"HIPAA encryption gate", trigger:"medical bills", accepted:true}],
+    ]},
+  { label: "Extract price from each bill",
+    calls: [
+      ["add_requirement", {title:"Price extraction", detail:"OCR/extract amount per bill",
+        priority:"should"}],
+    ]},
+  { label: "Over $500 → alert a lawyer",
+    calls: [
+      ["add_requirement", {title:"$500 threshold → notify attorney",
+        detail:"if bill amount > $500, alert assigned lawyer", priority:"must"}],
+      ["add_integration", {name:"Email/SMS notification", purpose:"alert attorney over threshold"}],
+    ]},
+  { label: "Add row-level security to MedicalBill",
+    calls: [
+      ["add_data_model", {name:"MedicalBill",
+        rls_policy:"patient can only read their own rows (Postgres RLS)"}],
+    ]},
+];
+
+async function fireCalls(calls){
+  window.SCENE && window.SCENE.pulse();           // visual flair even without voice
+  await fetch("/vapi/webhook", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ message:{ type:"tool-calls", call:{id:sid},
+      toolCallList: calls.map((c,i) => ({ id:`fb-${Date.now()}-${i}`,
+        function:{ name:c[0], arguments:c[1] } })) } }),
+  });
+}
+
+// label the step buttons + wire them
+document.querySelectorAll("#panel .step").forEach(btn => {
+  const s = SCRIPT[+btn.dataset.step];
+  btn.textContent = s.label;
+  btn.onclick = () => fireCalls(s.calls);
+});
+$("runAll").onclick = async () => {
+  for (const step of SCRIPT){ await fireCalls(step.calls); await sleep(1100); }
+};
+$("panelReset").onclick = () => $("resetBtn").click();
+
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+// toggle: backtick key or the corner button (ignore when typing in a field)
+function togglePanel(){ $("panel").classList.toggle("open"); }
+$("panelToggle").onclick = togglePanel;
+document.addEventListener("keydown", e => {
+  if (e.key === "`" && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) togglePanel();
+});
+</script>
+</body>
+</html>
