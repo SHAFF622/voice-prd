@@ -394,12 +394,20 @@ function buildPrdHtml(p){
 $("pdfBtn").onclick = () => {
   const p = latestPRD;
   if (!p){ toast("Nothing captured yet"); return; }
-  const w = window.open("", "_blank");
-  if (!w){ toast("Allow pop-ups to export PDF"); return; }
-  w.document.write(buildPrdHtml(p));
-  w.document.close();
-  w.onload = () => { w.focus(); w.print(); };   // user picks "Save as PDF"
   toast("Opening print dialog — choose “Save as PDF”");
+  // Hidden iframe + srcdoc: load fires reliably (unlike document.write) and it's not subject
+  // to pop-up blockers, so the print dialog always opens. User picks "Save as PDF".
+  const f = document.createElement("iframe");
+  f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+  f.onload = () => {
+    const win = f.contentWindow;
+    win.focus();                 // print the iframe doc, not the page
+    win.print();
+    win.addEventListener("afterprint", () => f.remove());
+    setTimeout(() => f.remove(), 120000);   // safety cleanup
+  };
+  f.srcdoc = buildPrdHtml(p);    // reuse the document generator unchanged
+  document.body.appendChild(f);
 };
 $("resetBtn").onclick = async () => {
   await fetch(`/api/reset/${sid}`, {method:"POST"});
