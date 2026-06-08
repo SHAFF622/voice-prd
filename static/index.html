@@ -87,6 +87,7 @@
   <button class="primary" id="callBtn">Start call</button>
   <button id="copyBtn">Copy MD</button>
   <button id="exportBtn">Export .md</button>
+  <button class="primary" id="pdfBtn">Export PDF</button>
   <button class="danger" id="resetBtn">Reset</button>
 </header>
 
@@ -292,6 +293,113 @@ $("exportBtn").onclick = async () => {
 $("copyBtn").onclick = async () => {
   await navigator.clipboard.writeText(await getMarkdown());
   toast("Markdown copied — paste into Notion");
+};
+
+// ---------------- PDF export: render a formatted document (like a real PRD doc) ----------------
+// Builds a self-contained, print-styled HTML page from the live PRD and opens the browser's
+// print dialog → "Save as PDF". Zero dependencies, selectable text, looks like a Word/PDF spec.
+function buildPrdHtml(p){
+  const e = esc;
+  const para = t => `<p>${e(t).replace(/\n/g,"<br>")}</p>`;
+  const ph = "<p class='ph'>To be captured.</p>";
+
+  let stake = p.stakeholders.length
+    ? p.stakeholders.map(s => `<p><b>${e(s.role)}.</b> ${e(s.description)}</p>`).join("")
+    : ph;
+
+  let uses = p.use_cases.length
+    ? p.use_cases.map((u,i) =>
+        `<h3>User Story #${i+1}: ${e(u.persona)}</h3>${para(u.story || "—")}`).join("")
+    : ph;
+
+  let aspects;
+  if (p.requirements.length){
+    const cats = [];
+    for (const r of p.requirements) if (!cats.includes(r.category)) cats.push(r.category);
+    aspects = cats.map((cat,ci) => {
+      const items = p.requirements.filter(r => r.category === cat).map((r,ri) => {
+        const txt = e(r.title) + (r.detail ? " — " + e(r.detail) : "");
+        return `<div class="req"><span class="num">${ci+1}.${ri+1}</span> ${txt}
+                <span class="pri">(${r.priority.toUpperCase()})</span></div>`;
+      }).join("");
+      return `<h3>${ci+1}. ${e(cat)}</h3>${items}`;
+    }).join("");
+  } else aspects = ph;
+
+  let dm = p.data_models.length
+    ? p.data_models.map(m =>
+        `<p><b>${e(m.name)}</b>${m.rls_policy ? ` <i>(RLS: ${e(m.rls_policy)})</i>` : ""}</p>`
+        + `<ul>${m.fields.map(f =>
+            `<li><code>${e(f.name)}</code>: ${e(f.type)}${f.pii ? " ⚠️ PII" : ""}</li>`).join("")}</ul>`
+      ).join("")
+    : "<p class='ph'>None captured.</p>";
+
+  let integ = p.integrations.length
+    ? `<ul>${p.integrations.map(i =>
+        `<li><b>${e(i.name)}</b>${i.purpose ? " — " + e(i.purpose) : ""}</li>`).join("")}</ul>`
+    : "<p class='ph'>None captured.</p>";
+
+  let comp = p.compliance.length
+    ? `<ul>${p.compliance.map(c =>
+        `<li><b>${e(c.name)}</b> (${c.accepted?"✅ accepted":"⏳ pending"}) — triggered by <i>${e(c.trigger)}</i>.</li>`).join("")}</ul>`
+    : "<p class='ph'>None flagged.</p>";
+
+  let oq = p.open_questions.length
+    ? `<ul>${p.open_questions.map(q => `<li>${e(q)}</li>`).join("")}</ul>`
+    : "<p class='ph'>None captured.</p>";
+
+  let miles = p.milestones.length
+    ? p.milestones.map(m => `<p>${e(m.name)}: ${e(m.date) || "<i>TBD</i>"}</p>`).join("")
+    : "<p class='ph'>None captured.</p>";
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${e(p.project_name)} — PRD</title>
+<style>
+  @page { margin: 22mm 20mm; }
+  body { font: 11pt/1.55 "Helvetica Neue", Arial, sans-serif; color:#1a1a1a; background:#fff;
+         max-width:760px; margin:40px auto; padding:0 24px; }
+  h1 { font-size:26pt; font-weight:700; margin:0 0 14px; }
+  .meta { color:#6b7280; font-size:11pt; margin:2px 0; }
+  .meta.k { color:#111; }
+  h2 { font-size:15pt; font-weight:700; margin:26px 0 8px; border-bottom:1px solid #e5e7eb;
+       padding-bottom:4px; }
+  h3 { font-size:11.5pt; font-weight:700; margin:14px 0 4px; }
+  p { margin:6px 0; }
+  ul { margin:6px 0 6px 0; padding-left:20px; }
+  li { margin:3px 0; }
+  code { font-family:ui-monospace,Menlo,monospace; font-size:10pt; background:#f3f4f6; padding:0 3px; border-radius:3px; }
+  .req { margin:3px 0; }
+  .req .num { display:inline-block; min-width:34px; color:#6b7280; }
+  .req .pri { color:#6b7280; font-size:9.5pt; }
+  .ph { color:#9ca3af; font-style:italic; }
+  @media print { body { margin:0; } }
+</style></head><body>
+  <h1>Product Requirements Document</h1>
+  <div class="meta k"><b>${e(p.project_name)}</b></div>
+  <div class="meta">Spectra</div>
+  <div class="meta">Prepared by: Naina (PRD architect)</div>
+  <div class="meta">Date of Creation: ${e(p.created)}</div>
+  <div class="meta">Version ${e(p.version)}</div>
+
+  <h2>Introduction</h2>${p.introduction ? para(p.introduction) : ph}
+  <h2>Objectives</h2>${p.objectives ? para(p.objectives) : ph}
+  <h2>Stakeholders</h2>${stake}
+  <h2>Use Cases</h2>${uses}
+  <h2>Aspects</h2>${aspects}
+  <h2>Technical Notes</h2><h3>Data models</h3>${dm}<h3>Integrations</h3>${integ}
+  <h2>Compliance &amp; Regulations</h2>${comp}
+  <h2>Open Questions</h2>${oq}
+  <h2>Milestones</h2>${miles}
+</body></html>`;
+}
+$("pdfBtn").onclick = () => {
+  const p = latestPRD;
+  if (!p){ toast("Nothing captured yet"); return; }
+  const w = window.open("", "_blank");
+  if (!w){ toast("Allow pop-ups to export PDF"); return; }
+  w.document.write(buildPrdHtml(p));
+  w.document.close();
+  w.onload = () => { w.focus(); w.print(); };   // user picks "Save as PDF"
+  toast("Opening print dialog — choose “Save as PDF”");
 };
 $("resetBtn").onclick = async () => {
   await fetch(`/api/reset/${sid}`, {method:"POST"});

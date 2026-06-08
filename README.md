@@ -289,6 +289,6 @@ mirror (`state.py`); the structured extraction is the tool calls themselves.
 - `state.py` — in-memory cache + SQLite mirror (the durability story)
 - `main.py` — FastAPI: `/vapi/webhook`, `/ws/{sid}`, `/export/{sid}.md`, `/api/reset/{sid}`
 - `static/index.html` — transcript rail + "N captured" counter + recording visual +
-  client-side markdown export/copy + Vapi wiring
+  client-side markdown export/copy + formatted PDF export (print-to-PDF) + Vapi wiring
 - `static/scene.js` — loads a realistic Ready Player Me GLB avatar (`static/avatar.glb`),
   studio-lit, that idles/blinks and lip-syncs to Vapi volume; swap via `RPM_AVATAR_URL` in `config.js`
