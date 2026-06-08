@@ -46,6 +46,16 @@ const state = await page.evaluate(async () => {
   };
 });
 
+// the client buildMarkdown() must match the server /export byte-for-byte (no drift)
+const md = await page.evaluate(async () => {
+  const server = await fetch("/export/verify.md").then((r) => r.text());
+  const client = buildMarkdown(latestPRD);
+  let diff = -1;
+  for (let i = 0; i < Math.max(server.length, client.length); i++)
+    if (server[i] !== client[i]) { diff = i; break; }
+  return { match: server === client, firstDiffAt: diff, len: server.length };
+});
+
 await page.evaluate(() => document.getElementById("panel").classList.add("open"));
 await new Promise(r => setTimeout(r, 400));
 await page.screenshot({ path: "verify.png" });
@@ -53,5 +63,6 @@ await page.screenshot({ path: "verify.png" });
 console.log("=== CONSOLE ERRORS ===", errors.length ? errors : "none");
 console.log("=== FAILED REQUESTS ===", failed.length ? failed : "none");
 console.log("=== DOM STATE ===", JSON.stringify(state, null, 2));
+console.log("=== MARKDOWN client==server ===", JSON.stringify(md));
 
 await browser.close();

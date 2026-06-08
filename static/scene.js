@@ -115,7 +115,7 @@ function initScene() {
 
     setMorph("mouthSmile", 0.12);             // pleasant resting expression
     scene.add(avatar);
-    if (label) label.textContent = "Ready Player Me avatar · lip-syncs to the voice";
+    if (label) label.textContent = "";        // no caption under the avatar
   }, undefined, (err) => {
     console.warn("Avatar failed to load (" + AVATAR_URL + "); scene stays live.", err);
     if (label) label.textContent = "avatar offline — set RPM_AVATAR_URL · dashboard live";

@@ -1,7 +1,7 @@
-"""FastAPI backend for the Voice-to-Workflow PRD Generator.
+"""FastAPI backend for Spectra (voice-to-PRD generator).
 
 Flow:  Vapi web call --(tool call)--> POST /vapi/webhook --> mutate PRD --> save to
-SQLite --> broadcast over WebSocket --> browser Command Center updates live.
+SQLite --> broadcast over WebSocket --> browser dashboard updates live.
 
 Tool handlers are dumb + instant: mutate state, return a one-line confirmation, fire
 the broadcast as a background task so we never block the agent's speech on a DB write.
@@ -21,9 +21,9 @@ from fastapi.staticfiles import StaticFiles
 
 import state
 from schema import (PRD, Requirement, DataModel, Field_, Integration,
-                    ComplianceGate, Stage)
+                    ComplianceGate, Stakeholder, UseCase, Milestone, Stage)
 
-app = FastAPI(title="Voice PRD")
+app = FastAPI(title="Spectra")
 
 # session_id -> set of connected dashboard sockets
 _sockets: dict[str, set[WebSocket]] = {}
@@ -50,18 +50,22 @@ async def broadcast(session_id: str) -> None:
 # ------------------------------------------------------------------ tools
 # Each tool mutates the PRD and advances the stage. Keep them trivial.
 
-def add_requirement(prd: PRD, title: str, detail: str = "", priority: str = "must") -> str:
+def add_requirement(prd: PRD, title: str, detail: str = "", priority: str = "must",
+                    category: str = "Functionality") -> str:
     prd.stage = Stage.GATHERING_INTENT
     pri = priority if priority in ("must", "should", "could") else "must"
+    cat = category or "Functionality"
     # Upsert by title so re-stating a requirement updates it instead of duplicating.
     existing = next((r for r in prd.requirements if r.title.lower() == title.lower()), None)
     if existing:
         if detail:
             existing.detail = detail
         existing.priority = pri
+        existing.category = cat
         return f"Updated requirement: {title}"
     prd.requirements.append(
-        Requirement(id=str(uuid.uuid4())[:8], title=title, detail=detail, priority=pri))
+        Requirement(id=str(uuid.uuid4())[:8], title=title, detail=detail,
+                    priority=pri, category=cat))
     return f"Added requirement: {title}"
 
 
@@ -113,8 +117,57 @@ def flag_compliance(prd: PRD, name: str, trigger: str, accepted: bool = False) -
     return f"Flagged compliance gate: {name}"
 
 
+def set_overview(prd: PRD, introduction: str = "", objectives: str = "",
+                 project_name: str = "") -> str:
+    if introduction:
+        prd.introduction = introduction
+    if objectives:
+        prd.objectives = objectives
+    if project_name:
+        prd.project_name = project_name
+    prd.stage = Stage.GATHERING_INTENT
+    return "Updated product overview"
+
+
+def add_stakeholder(prd: PRD, role: str, description: str = "") -> str:
+    existing = next((s for s in prd.stakeholders if s.role.lower() == role.lower()), None)
+    if existing:
+        if description:
+            existing.description = description
+        return f"Updated stakeholder: {role}"
+    prd.stakeholders.append(Stakeholder(role=role, description=description))
+    return f"Added stakeholder: {role}"
+
+
+def add_use_case(prd: PRD, persona: str, story: str = "") -> str:
+    existing = next((u for u in prd.use_cases if u.persona.lower() == persona.lower()), None)
+    if existing:
+        if story:
+            existing.story = story
+        return f"Updated use case: {persona}"
+    prd.use_cases.append(UseCase(persona=persona, story=story))
+    return f"Added use case: {persona}"
+
+
+def add_milestone(prd: PRD, name: str, date: str = "") -> str:
+    existing = next((m for m in prd.milestones if m.name.lower() == name.lower()), None)
+    if existing:
+        if date:
+            existing.date = date
+        return f"Updated milestone: {name}"
+    prd.milestones.append(Milestone(name=name, date=date))
+    return f"Added milestone: {name}"
+
+
+def add_open_question(prd: PRD, question: str) -> str:
+    if question and question not in prd.open_questions:
+        prd.open_questions.append(question)
+    return "Added open question"
+
+
 TOOLS = {f.__name__: f for f in
-         (add_requirement, add_data_model, add_integration, flag_compliance)}
+         (add_requirement, add_data_model, add_integration, flag_compliance,
+          set_overview, add_stakeholder, add_use_case, add_milestone, add_open_question)}
 
 
 # ------------------------------------------------------------------ vapi webhook

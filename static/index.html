@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PRD Command Center</title>
+<title>Spectra — voice to PRD</title>
 <link rel="icon" href="data:,">  <!-- silence favicon 404 -->
 <!-- gitignored local keys (copy static/config.example.js -> static/config.js). Loads
      before the app script; server returns empty JS if the file is absent (no 404). -->
@@ -79,7 +79,7 @@
 </head>
 <body>
 <header>
-  <h1>PRD COMMAND CENTER</h1>
+  <h1>SPECTRA</h1>
   <span class="stage" id="stage">▸ idle</span>
   <span class="count" id="count"><b>0</b> captured</span>
   <span class="spacer"></span>
@@ -98,7 +98,7 @@
 
   <section class="center">
     <canvas id="scene"></canvas>
-    <div class="label">loading avatar…</div>
+    <div class="label"></div>
   </section>
 </main>
 
@@ -161,7 +161,9 @@ function render(p){
 
   // structured data now lives in the export (.md) — the UI just tracks how much we've captured
   const total = p.requirements.length + p.data_models.length
-              + p.integrations.length + p.compliance.length;
+              + p.integrations.length + p.compliance.length
+              + p.stakeholders.length + p.use_cases.length
+              + p.milestones.length + p.open_questions.length;
   $("count").innerHTML = `<b>${total}</b> captured`;
 
   // feed the 3D human: emit an orbiting node whenever the total item count grows
@@ -177,21 +179,101 @@ function esc(s){ return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;
 // Build the artifact in the browser from the live PRD (mirrors schema.py::to_markdown). This
 // is deployment-independent — no server round-trip — so Export/Copy work even behind a proxy
 // or static host. Falls back to the server route only if we haven't received state yet.
+// Mirrors schema.py::to_markdown EXACTLY (verify.mjs asserts they stay byte-identical).
 function buildMarkdown(p){
-  const L = [`# PRD: ${p.project_name}`, "",
-             `_Stage: ${p.stage.replace(/_/g," ")}_`, "", "## Requirements"];
-  for (const r of p.requirements)
-    L.push(`- **[${r.priority.toUpperCase()}] ${r.title}**` + (r.detail ? ` — ${r.detail}` : ""));
-  L.push("", "## Data Models");
-  for (const m of p.data_models){
-    L.push(`- **${m.name}**` + (m.rls_policy ? `  _(RLS: ${m.rls_policy})_` : ""));
-    for (const f of m.fields) L.push(`    - \`${f.name}\`: ${f.type}${f.pii ? " ⚠️ PII" : ""}`);
+  const P = p.project_name;
+  const L = [
+    "# Product Requirements Document",
+    "",
+    `**${P}**`,
+    "",
+    `_Spectra · Prepared by Naina (PRD architect) · ${p.created} · Version ${p.version}_`,
+    "",
+    "## Introduction",
+    p.introduction || "_Background and context to be captured._",
+    "",
+    "## Objectives",
+    p.objectives || "_Goals, targets, and market positioning to be captured._",
+    "",
+    "## Stakeholders",
+  ];
+  if (p.stakeholders.length){
+    for (const s of p.stakeholders)
+      L.push(s.description ? `- **${s.role}.** ${s.description}` : `- **${s.role}.**`);
+  } else {
+    L.push("_No stakeholders captured yet._");
   }
-  L.push("", "## Integrations");
-  for (const i of p.integrations) L.push(`- **${i.name}**` + (i.purpose ? ` — ${i.purpose}` : ""));
-  L.push("", "## Compliance Gates");
-  for (const c of p.compliance)
-    L.push(`- **${c.name}** (${c.accepted ? "✅ accepted" : "⏳ pending"}) — triggered by: _${c.trigger}_`);
+
+  L.push("", "## Use Cases", "");
+  if (p.use_cases.length){
+    let n = 0;
+    for (const u of p.use_cases){
+      n++;
+      L.push(`### User Story #${n}: ${u.persona}`);
+      L.push(u.story || "_…_");
+      L.push("");
+    }
+  } else {
+    L.push("_No use cases captured yet._", "");
+  }
+
+  L.push("## Aspects", "");
+  if (p.requirements.length){
+    const cats = [];
+    for (const r of p.requirements) if (!cats.includes(r.category)) cats.push(r.category);
+    let ci = 0;
+    for (const cat of cats){
+      ci++;
+      L.push(`### ${ci}. ${cat}`);
+      const items = p.requirements.filter(r => r.category === cat);
+      let ri = 0;
+      for (const r of items){
+        ri++;
+        let line = `${ci}.${ri} ${r.title}`;
+        if (r.detail) line += ` — ${r.detail}`;
+        line += " `[" + r.priority.toUpperCase() + "]`";
+        L.push(line);
+      }
+      L.push("");
+    }
+  } else {
+    L.push("_No requirements captured yet._", "");
+  }
+
+  L.push("## Technical Notes", "", "### Data models");
+  if (!p.data_models.length) L.push("_None captured yet._");
+  for (const m of p.data_models){
+    L.push("- **" + m.name + "**" + (m.rls_policy ? `  _(RLS: ${m.rls_policy})_` : ""));
+    for (const f of m.fields) L.push("    - `" + f.name + "`: " + f.type + (f.pii ? " ⚠️ PII" : ""));
+  }
+  L.push("", "### Integrations");
+  if (!p.integrations.length) L.push("_None captured yet._");
+  for (const i of p.integrations) L.push("- **" + i.name + "**" + (i.purpose ? ` — ${i.purpose}` : ""));
+
+  L.push("", "## Compliance & Regulations");
+  if (p.compliance.length){
+    for (const c of p.compliance){
+      const status = c.accepted ? "✅ accepted" : "⏳ pending";
+      L.push("- **" + c.name + "** (" + status + ") — triggered by _" + c.trigger + "_.");
+    }
+  } else {
+    L.push("_No compliance gates flagged yet._");
+  }
+
+  L.push("", "## Open Questions");
+  if (p.open_questions.length){
+    for (const q of p.open_questions) L.push("- " + q);
+  } else {
+    L.push("_No open questions captured yet._");
+  }
+
+  L.push("", "## Milestones");
+  if (p.milestones.length){
+    for (const m of p.milestones)
+      L.push(m.date ? `- **${m.name}** — ${m.date}` : `- **${m.name}** — _TBD_`);
+  } else {
+    L.push("_No milestones captured yet._");
+  }
   L.push("");
   return L.join("\n");
 }
@@ -263,12 +345,19 @@ $("callBtn").onclick = () => {
 // Each step mirrors a line of the MedLegal demo script and posts tool calls to the
 // SAME /vapi/webhook the voice agent uses -> dashboard + 3D core update identically.
 const SCRIPT = [
-  { label: "Patients upload medical bills",
+  { label: "It's a medical-billing app for patients",
     calls: [
+      ["set_overview", {
+        introduction:"MedLegal Intake lets patients upload medical bills and routes high-value bills to an attorney for review.",
+        objectives:"Cut manual bill triage, surface bills over $500 to attorneys within minutes, stay HIPAA-compliant."}],
+      ["add_stakeholder", {role:"Target group",
+        description:"Patients managing medical bills; attorneys who review high-value claims."}],
+      ["add_use_case", {persona:"Maria, a patient",
+        story:"Maria photographs a $1,200 hospital bill; the app extracts the amount and alerts her attorney automatically."}],
       ["add_data_model", {name:"MedicalBill",
         fields:["amount:money","patient:fk:Patient","image:file","received:timestamp"]}],
       ["add_requirement", {title:"Bill upload", detail:"patients upload medical bills",
-        priority:"must"}],
+        priority:"must", category:"Functionality"}],
     ]},
   { label: "Flag HIPAA gate (founder says yes)",
     calls: [
@@ -277,18 +366,21 @@ const SCRIPT = [
   { label: "Extract price from each bill",
     calls: [
       ["add_requirement", {title:"Price extraction", detail:"OCR/extract amount per bill",
-        priority:"should"}],
+        priority:"should", category:"Functionality"}],
     ]},
   { label: "Over $500 → alert a lawyer",
     calls: [
       ["add_requirement", {title:"$500 threshold → notify attorney",
-        detail:"if bill amount > $500, alert assigned lawyer", priority:"must"}],
+        detail:"if bill amount > $500, alert assigned lawyer", priority:"must",
+        category:"Functionality"}],
       ["add_integration", {name:"Email/SMS notification", purpose:"alert attorney over threshold"}],
     ]},
-  { label: "Add row-level security to MedicalBill",
+  { label: "RLS + timeline + open question",
     calls: [
       ["add_data_model", {name:"MedicalBill",
         rls_policy:"patient can only read their own rows (Postgres RLS)"}],
+      ["add_milestone", {name:"MVP launch", date:"Q4 2026"}],
+      ["add_open_question", {question:"Which OCR provider handles itemized hospital bills best?"}],
     ]},
 ];
 
