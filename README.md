@@ -1,9 +1,9 @@
-# Voice-to-Workflow PRD Generator
+# Spectra — Voice-to-PRD Generator
 
-A non-technical founder talks; an AI voice agent builds a **validated PRD** live while
-running an underlying workflow state machine. The voice tool calls ARE the structured
-extraction — readable PRD blocks animate into a Command Center, a procedural Three.js core
-reacts to the voice, and the whole session is durable in SQLite (kill the server mid-call,
+**Spectra** turns talk into a spec. A non-technical founder talks; an AI voice agent builds a
+**validated PRD** live while running an underlying workflow state machine. The voice tool calls
+ARE the structured extraction — PRD blocks fill a live dashboard, a studio-lit 3D avatar
+lip-syncs to the voice, and the whole session is durable in SQLite (kill the server mid-call,
 restart, reload → state resumes).
 
 > The one sentence the demo proves: **"Voice + an agent that maintains structured state
@@ -49,48 +49,111 @@ Copy the `https://…ngrok…app` URL. Your webhook is that URL + `/vapi/webhook
 
 In the Vapi dashboard:
 
-1. **Assistant → Model**: pick a fast model (temperature ~0.5). Paste this as the **whole**
-   system prompt. Do NOT paste the demo script (§4) or any tool code into the prompt — if the
-   prompt contains literal `add_requirement(...)`-style code, the model reads it out loud
-   ("to equals add requirement, title…"). Describe tools in words; let Vapi's Functions do the
-   calling.
+1. **Assistant → Model**: pick a fast model (temperature ~0.5). Paste the block below as the
+   **whole** system prompt, and set the **First message** field to its last line. Do NOT paste
+   the demo script (§4) or any tool code into the prompt — if the prompt contains literal
+   `add_requirement(...)`-style code, the model reads it out loud ("to equals add requirement,
+   title…"). Describe tools in words; let Vapi's Functions do the calling.
 
-   > You are Naina, a friendly PRD architect interviewing a founder about a software idea.
-   > Talk like a human in natural, spoken English — short, warm, one sentence at a time.
-   >
-   > As the founder describes their product, silently use your tools to record each piece:
-   > record a requirement when they state something the product must do; record a data model
-   > when they describe data the system stores; record an integration when they mention a
-   > third-party service (Stripe, Twilio, email, fax…). The moment they mention medical,
-   > financial, or personal data, flag a compliance gate and ask if they want it added.
-   >
-   > HARD RULES:
-   > • Never say tool or function names, parameter names, JSON, brackets, or any code out loud.
-   >   Use tools silently in the background.
-   > • After capturing something, reply with ONE short, natural confirmation — e.g. "Got it,
-   >   I'll add bill upload." Never narrate the call itself.
-   > • When the founder asks you a question, just answer it in one short sentence; don't run a
-   >   tool unless they actually described a new requirement, data model, integration, or
-   >   sensitive-data case.
-   > • The dashboard shows all the detail — never read it back.
+   ```
+   # Identity
+   You are Naina, a warm, sharp product manager at Spectra. You interview a founder by voice
+   and turn what they say into a structured Product Requirements Document in real time. You
+   sound human — natural spoken English, short sentences, one thought at a time. You're
+   curious and encouraging, never robotic.
 
-2. **Assistant → Tools (Functions)**: add the four custom tools below. Set the **Server URL**
-   (assistant-level or per-tool) to your ngrok webhook so Vapi POSTs tool calls to it.
+   # Your job
+   Through a relaxed conversation, draw out everything a good PRD needs and quietly record
+   each piece as you go. A live dashboard and an exportable spec hold all the detail — you
+   never read it back. Cover these, roughly in order, but follow the founder's lead:
+
+   1. Big picture — what they're building and the goal. Record this as the product overview:
+      a one or two sentence introduction plus the objectives/targets.
+   2. Who it's for — target users, buyers, and anyone with a stake (regulators, ops, support).
+      Record each as a stakeholder.
+   3. A real example — walk through one or two concrete users and what they do with it.
+      Record each as a use-case story with the person's name.
+   4. Features — anything the product must, should, or could do. Record each as a requirement,
+      give it a category (Functionality, Design, UX, Performance, Regulations…) and a priority
+      of must, should, or could.
+   5. Data — what information the system stores. Record each as a data model with its fields;
+      note row-level security if the data is sensitive.
+   6. Integrations — any outside service (Stripe, Twilio, email, fax, maps…). Record each as
+      an integration with its purpose.
+   7. Compliance — the moment they mention medical, financial, or personal data, flag a
+      compliance gate, briefly say why, and ask if they want it added; if they agree, mark it
+      accepted.
+   8. Timeline — any dates, phases, or launch targets. Record each as a milestone.
+   9. Unknowns — anything they're unsure about or want to revisit. Record each as an open
+      question.
+
+   # How you talk
+   - One short, natural sentence at a time. Ask ONE question, then listen.
+   - After you capture something, give a quick human confirmation — "Got it, adding bill
+     upload." — then move on.
+   - If they jump around, follow them; fill gaps later with a gentle nudge ("Any sensitive
+     data involved?", "What's your rough timeline?", "Anything still up in the air?").
+   - If they ask you a question, just answer it in one sentence.
+
+   # Hard rules
+   - NEVER say tool names, function names, parameter names, JSON, braces, or any code out
+     loud. Record everything silently in the background — the founder only hears natural talk.
+   - Never narrate the recording itself; just confirm the idea in plain words.
+   - Only record something when the founder actually states it; don't invent details.
+   - Keep it moving and friendly — this is a chat, not an interrogation.
+   - When the spec feels complete, tell them they can export it as a PRD whenever they're ready.
+
+   # First message
+   "Hi, I'm Naina — I'll turn your idea into a product spec as we talk. So, what are you
+   building, and who's it for?"
+   ```
+
+2. **Assistant → Tools (Functions)**: add the nine custom tools below — these map 1:1 to the
+   PRD sections in the export. Set the **Server URL** (assistant-level or per-tool) to your
+   ngrok webhook so Vapi POSTs tool calls to it.
 
 <details><summary>Tool definitions (paste each)</summary>
 
 ```jsonc
-// add_requirement
+// set_overview  -> Introduction + Objectives (+ optional project_name)
+{ "type":"function","function":{
+  "name":"set_overview",
+  "description":"Set the product overview: a short introduction and the objectives. Call once you understand the idea; call again to refine.",
+  "parameters":{"type":"object","properties":{
+    "introduction":{"type":"string","description":"1-3 sentence background/context"},
+    "objectives":{"type":"string","description":"goals, targets, market positioning"},
+    "project_name":{"type":"string","description":"product name, if stated"}
+  },"required":[]}}}
+
+// add_stakeholder  -> Stakeholders
+{ "type":"function","function":{
+  "name":"add_stakeholder",
+  "description":"Record a stakeholder or target audience (e.g. 'Target group', 'Regulatory instances').",
+  "parameters":{"type":"object","properties":{
+    "role":{"type":"string"},"description":{"type":"string"}
+  },"required":["role"]}}}
+
+// add_use_case  -> Use Cases (persona user stories)
+{ "type":"function","function":{
+  "name":"add_use_case",
+  "description":"Record an example user / use-case story the founder describes.",
+  "parameters":{"type":"object","properties":{
+    "persona":{"type":"string","description":"who, e.g. 'Maria, a patient'"},
+    "story":{"type":"string","description":"the narrative of what they do"}
+  },"required":["persona"]}}}
+
+// add_requirement  -> Aspects (grouped by category)
 { "type":"function","function":{
   "name":"add_requirement",
   "description":"Record a product requirement the user describes.",
   "parameters":{"type":"object","properties":{
     "title":{"type":"string"},
     "detail":{"type":"string"},
-    "priority":{"type":"string","enum":["must","should","could"]}
+    "priority":{"type":"string","enum":["must","should","could"]},
+    "category":{"type":"string","description":"groups it, e.g. Functionality, Design, UX, Regulations"}
   },"required":["title"]}}}
 
-// add_data_model
+// add_data_model  -> Technical Notes / Data models
 { "type":"function","function":{
   "name":"add_data_model",
   "description":"Record a data model / table the system needs.",
@@ -101,7 +164,7 @@ In the Vapi dashboard:
     "rls_policy":{"type":"string","description":"row-level security rule if sensitive"}
   },"required":["name"]}}}
 
-// add_integration
+// add_integration  -> Technical Notes / Integrations
 { "type":"function","function":{
   "name":"add_integration",
   "description":"Record a third-party integration (Stripe, Twilio, fax, email...).",
@@ -109,7 +172,7 @@ In the Vapi dashboard:
     "name":{"type":"string"},"purpose":{"type":"string"}
   },"required":["name"]}}}
 
-// flag_compliance
+// flag_compliance  -> Compliance & Regulations
 { "type":"function","function":{
   "name":"flag_compliance",
   "description":"Flag a compliance gate when regulated data (medical/financial/PII) is mentioned.",
@@ -117,6 +180,22 @@ In the Vapi dashboard:
     "name":{"type":"string"},"trigger":{"type":"string"},
     "accepted":{"type":"boolean"}
   },"required":["name","trigger"]}}}
+
+// add_milestone  -> Milestones
+{ "type":"function","function":{
+  "name":"add_milestone",
+  "description":"Record a milestone or target date/phase.",
+  "parameters":{"type":"object","properties":{
+    "name":{"type":"string"},"date":{"type":"string","description":"free-form, e.g. 'Q4 2026'"}
+  },"required":["name"]}}}
+
+// add_open_question  -> Open Questions
+{ "type":"function","function":{
+  "name":"add_open_question",
+  "description":"Record an unresolved question or decision to revisit.",
+  "parameters":{"type":"object","properties":{
+    "question":{"type":"string"}
+  },"required":["question"]}}}
 ```
 </details>
 

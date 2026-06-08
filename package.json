@@ -1,7 +1,7 @@
 {
-  "name": "voice-prd",
+  "name": "spectra",
   "version": "1.0.0",
-  "description": "Voice-to-Workflow PRD Generator — voice agent builds a validated PRD live via tool calls.",
+  "description": "Spectra — voice-to-PRD generator: an AI voice agent builds a validated PRD live via tool calls.",
   "type": "module",
   "scripts": {
     "verify": "node verify.mjs"

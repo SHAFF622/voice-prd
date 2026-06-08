@@ -1,11 +1,11 @@
-# CLAUDE.md — Voice-to-Workflow PRD Generator
+# CLAUDE.md — Spectra (Voice-to-PRD Generator)
 
 Context for AI agents working in this repo. Read `README.md` for the full runbook.
 
 ## What this is
 A non-technical founder talks to a voice agent (Vapi); the agent calls tools that build a
 **validated PRD** live. The voice tool calls ARE the structured extraction — no separate
-transcript→JSON pipeline. State is durable in SQLite, streamed to a browser Command Center
+transcript→JSON pipeline. State is durable in SQLite, streamed to a browser dashboard
 over WebSocket, with a procedural Three.js core that reacts to speech.
 
 ```
@@ -17,8 +17,10 @@ Vapi web call --tool call--> POST /vapi/webhook --> mutate PRD --> SQLite --> WS
   `state.save()` mirrors to SQLite, `broadcast()` pushes to all sockets.
 - **Tool handlers are dumb + instant**: mutate, return a one-line string, never block on I/O.
   `broadcast()` runs as a background task so the agent's speech is never delayed.
-- **`add_data_model` upserts by name** — re-mentioning a model updates it (the RLS beat),
-  never duplicates.
+- **All capture tools upsert by title/name** (`add_requirement`, `add_data_model`,
+  `add_integration`, `flag_compliance`, `add_stakeholder`, `add_use_case`, `add_milestone`) —
+  re-mentioning something updates it (the RLS beat; a gate flipping to accepted), never
+  duplicates. `set_overview` sets the intro/objectives strings.
 - **Provider-agnostic backend**: `/vapi/webhook` is just HTTP. Swapping Vapi for another voice
   provider is a frontend/config change only.
 - **Frontend must degrade gracefully**: `scene.js` feature-detects WebGL and installs a no-op
