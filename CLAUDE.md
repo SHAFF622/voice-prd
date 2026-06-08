@@ -29,7 +29,10 @@ Vapi web call --tool call--> POST /vapi/webhook --> mutate PRD --> SQLite --> WS
 ## Files
 - `schema.py` — Pydantic PRD models + `to_markdown()`
 - `state.py` — in-memory cache + SQLite mirror (the durability story)
-- `main.py` — FastAPI: `/vapi/webhook`, `/ws/{sid}`, `/export/{sid}.md`, `/api/reset/{sid}`
+- `main.py` — FastAPI: `/vapi/webhook`, `/ws/{sid}`, `/export/{sid}.md`, `/api/reset/{sid}`,
+  `/generate/{sid}` (config-proof fallback: browser POSTs the captured transcript, one OpenAI
+  `gpt-4o` structured-output call builds the whole PRD; needs `OPENAI_API_KEY`, degrades to a
+  clean 400/502 without it)
 - `static/index.html` — transcript rail, "N captured" counter, recording visual, client-side
   markdown export/copy + formatted **PDF export** (`buildPrdHtml` → print-to-PDF), Vapi wiring,
   type-to-trigger Plan C fallback panel (backtick toggles it)
@@ -54,5 +57,7 @@ npm run verify && open verify.png                             # headless render 
 WebGL context live, `window.SCENE` present, zero console errors. Run it after any frontend change.
 
 ## Scope discipline (intentionally NOT here)
-Blender/GLTF (the 3D is procedural), Twilio, Temporal, live Notion API, auth, a second
-transcript→JSON extraction pipeline. Don't add these without a reason.
+Blender/GLTF (the 3D is procedural), Twilio, Temporal, live Notion API, auth. Don't add these
+without a reason. NOTE: the live Vapi tool calls are still the primary structured-extraction
+path; `/generate` is an explicit **fallback** for when those tool calls don't reach the server
+(misconfig, demo conditions) — not a replacement. Keep the tool-call path the default.

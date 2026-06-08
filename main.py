@@ -267,7 +267,7 @@ async def api_reset(session_id: str):
 
 
 # ------------------------------------------------------------------ transcript -> PRD
-# Config-proof fallback: extract a full PRD from the call transcript with one Claude call.
+# Config-proof fallback: extract a full PRD from the call transcript with one OpenAI call.
 # Independent of the Vapi tool-call webhook — the browser POSTs the transcript it already has.
 _EXTRACT_SYSTEM = (
     "You convert a founder's product-interview transcript into a structured Product "
@@ -353,9 +353,6 @@ def _prd_from_extract(d: dict) -> PRD:
 @app.post("/generate/{session_id}")
 async def generate(session_id: str, req: Request):
     """Extract a full PRD from the conversation transcript with one Claude call."""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return JSONResponse({"error": "ANTHROPIC_API_KEY is not set on the server."},
-                            status_code=400)
     body = await req.json()
     raw = body.get("transcript", "")
     if isinstance(raw, list):
@@ -366,19 +363,21 @@ async def generate(session_id: str, req: Request):
     if not transcript.strip():
         return JSONResponse({"error": "Empty transcript — have a conversation first."},
                             status_code=400)
+    if not os.environ.get("OPENAI_API_KEY"):
+        return JSONResponse({"error": "OPENAI_API_KEY is not set on the server."},
+                            status_code=400)
 
     try:
-        from anthropic import AsyncAnthropic           # lazy: never breaks app startup
-        client = AsyncAnthropic()
-        resp = await client.messages.create(
-            model="claude-opus-4-8",
-            max_tokens=4096,
-            system=_EXTRACT_SYSTEM,
-            messages=[{"role": "user", "content": transcript}],
-            output_config={"format": {"type": "json_schema", "schema": _EXTRACT_SCHEMA}},
+        from openai import AsyncOpenAI                  # lazy: never breaks app startup
+        client = AsyncOpenAI()
+        resp = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "system", "content": _EXTRACT_SYSTEM},
+                      {"role": "user", "content": transcript}],
+            response_format={"type": "json_schema", "json_schema": {
+                "name": "prd", "strict": True, "schema": _EXTRACT_SCHEMA}},
         )
-        text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
-        data = json.loads(text)
+        data = json.loads(resp.choices[0].message.content)
     except Exception as e:                              # never crash the server mid-demo
         print(f"[generate] error: {e}", flush=True)
         return JSONResponse({"error": f"Generation failed: {e}"}, status_code=502)

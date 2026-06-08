@@ -6,3 +6,4 @@ prd.db
 node_modules/
 verify.png
 static/config.js
+.env

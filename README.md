@@ -49,8 +49,8 @@ captured nothing / dropped mid-sentence"). `render.yaml` + `runtime.txt` are inc
 2. Render → **New + → Blueprint** → pick the repo (it reads `render.yaml`).
 3. Set env vars: `VAPI_PUBLIC_KEY`, `VAPI_ASSISTANT_ID` (and optional `RPM_AVATAR_URL`).
    The server serves these to the browser via `/config.js`, so no keys are committed.
-   Add `ANTHROPIC_API_KEY` to enable **Generate PRD** (extracts the whole PRD from the call
-   transcript with Claude — a config-proof fallback when live tool calls don't fire).
+   Add `OPENAI_API_KEY` to enable **Generate PRD** (extracts the whole PRD from the call
+   transcript with OpenAI gpt-4o — a config-proof fallback when live tool calls don't fire).
 4. Deploy → copy the live URL, e.g. `https://spectra.onrender.com`.
 
 - **Dashboard:** `https://<app>.onrender.com/?s=demo`
