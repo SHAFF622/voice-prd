@@ -49,6 +49,8 @@ captured nothing / dropped mid-sentence"). `render.yaml` + `runtime.txt` are inc
 2. Render → **New + → Blueprint** → pick the repo (it reads `render.yaml`).
 3. Set env vars: `VAPI_PUBLIC_KEY`, `VAPI_ASSISTANT_ID` (and optional `RPM_AVATAR_URL`).
    The server serves these to the browser via `/config.js`, so no keys are committed.
+   Add `ANTHROPIC_API_KEY` to enable **Generate PRD** (extracts the whole PRD from the call
+   transcript with Claude — a config-proof fallback when live tool calls don't fire).
 4. Deploy → copy the live URL, e.g. `https://spectra.onrender.com`.
 
 - **Dashboard:** `https://<app>.onrender.com/?s=demo`
@@ -320,6 +322,7 @@ mirror (`state.py`); the structured extraction is the tool calls themselves.
 - `state.py` — in-memory cache + SQLite mirror (the durability story)
 - `main.py` — FastAPI: `/vapi/webhook`, `/ws/{sid}`, `/export/{sid}.md`, `/api/reset/{sid}`
 - `static/index.html` — transcript rail + "N captured" counter + recording visual +
-  client-side markdown export/copy + formatted PDF export (print-to-PDF) + Vapi wiring
+  client-side markdown export/copy + formatted PDF export (print-to-PDF) + **Generate PRD**
+  (transcript → PRD via Claude) + Vapi wiring
 - `static/scene.js` — loads a realistic Ready Player Me GLB avatar (`static/avatar.glb`),
   studio-lit, that idles/blinks and lip-syncs to Vapi volume; swap via `RPM_AVATAR_URL` in `config.js`

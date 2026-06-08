@@ -266,6 +266,133 @@ async def api_reset(session_id: str):
     return JSONResponse({"ok": True})
 
 
+# ------------------------------------------------------------------ transcript -> PRD
+# Config-proof fallback: extract a full PRD from the call transcript with one Claude call.
+# Independent of the Vapi tool-call webhook — the browser POSTs the transcript it already has.
+_EXTRACT_SYSTEM = (
+    "You convert a founder's product-interview transcript into a structured Product "
+    "Requirements Document. Read the whole conversation and fill every field from what was "
+    "actually said — do not invent features. Write a concise introduction and objectives; "
+    "list stakeholders/target users; capture concrete example users as use cases; record each "
+    "thing the product must/should/could do as a requirement with a category (Functionality, "
+    "Design, UX, Performance, Regulations, …); capture data the system stores as data models "
+    "(mark sensitive fields pii=true, add an rls_policy when data is sensitive); capture "
+    "third-party services as integrations; flag compliance gates when medical/financial/"
+    "personal data appears (accepted=true only if the founder agreed); capture dates/phases as "
+    "milestones; and list anything undecided as open questions. Leave a string empty or an "
+    "array empty when the transcript doesn't cover it."
+)
+
+# Mirrors schema.py — every property required, additionalProperties:false (structured outputs).
+def _obj(props):
+    return {"type": "object", "additionalProperties": False,
+            "properties": props, "required": list(props)}
+
+_EXTRACT_SCHEMA = _obj({
+    "project_name": {"type": "string"},
+    "introduction": {"type": "string"},
+    "objectives": {"type": "string"},
+    "stakeholders": {"type": "array", "items": _obj({
+        "role": {"type": "string"}, "description": {"type": "string"}})},
+    "use_cases": {"type": "array", "items": _obj({
+        "persona": {"type": "string"}, "story": {"type": "string"}})},
+    "requirements": {"type": "array", "items": _obj({
+        "title": {"type": "string"}, "detail": {"type": "string"},
+        "priority": {"type": "string", "enum": ["must", "should", "could"]},
+        "category": {"type": "string"}})},
+    "data_models": {"type": "array", "items": _obj({
+        "name": {"type": "string"},
+        "fields": {"type": "array", "items": _obj({
+            "name": {"type": "string"}, "type": {"type": "string"},
+            "pii": {"type": "boolean"}})},
+        "rls_policy": {"type": "string"}})},
+    "integrations": {"type": "array", "items": _obj({
+        "name": {"type": "string"}, "purpose": {"type": "string"}})},
+    "compliance": {"type": "array", "items": _obj({
+        "name": {"type": "string"}, "trigger": {"type": "string"},
+        "accepted": {"type": "boolean"}})},
+    "milestones": {"type": "array", "items": _obj({
+        "name": {"type": "string"}, "date": {"type": "string"}})},
+    "open_questions": {"type": "array", "items": {"type": "string"}},
+})
+
+
+def _prd_from_extract(d: dict) -> PRD:
+    """Build a validated PRD from the model's JSON (assign ids, map fields, keep defaults)."""
+    return PRD(
+        project_name=d.get("project_name") or "Untitled Product",
+        introduction=d.get("introduction", ""),
+        objectives=d.get("objectives", ""),
+        requirements=[Requirement(
+            id=str(uuid.uuid4())[:8], title=r["title"], detail=r.get("detail", ""),
+            priority=r.get("priority", "must") if r.get("priority") in
+            ("must", "should", "could") else "must",
+            category=r.get("category") or "Functionality")
+            for r in d.get("requirements", []) if r.get("title")],
+        data_models=[DataModel(
+            name=m["name"],
+            fields=[Field_(name=f["name"], type=f.get("type", "text"),
+                          pii=bool(f.get("pii"))) for f in m.get("fields", []) if f.get("name")],
+            rls_policy=(m.get("rls_policy") or None))
+            for m in d.get("data_models", []) if m.get("name")],
+        integrations=[Integration(name=i["name"], purpose=i.get("purpose", ""))
+                      for i in d.get("integrations", []) if i.get("name")],
+        compliance=[ComplianceGate(name=c["name"], trigger=c.get("trigger", ""),
+                                   accepted=bool(c.get("accepted")))
+                    for c in d.get("compliance", []) if c.get("name")],
+        stakeholders=[Stakeholder(role=s["role"], description=s.get("description", ""))
+                      for s in d.get("stakeholders", []) if s.get("role")],
+        use_cases=[UseCase(persona=u["persona"], story=u.get("story", ""))
+                   for u in d.get("use_cases", []) if u.get("persona")],
+        milestones=[Milestone(name=m["name"], date=m.get("date", ""))
+                    for m in d.get("milestones", []) if m.get("name")],
+        open_questions=[q for q in d.get("open_questions", []) if q],
+    )
+
+
+@app.post("/generate/{session_id}")
+async def generate(session_id: str, req: Request):
+    """Extract a full PRD from the conversation transcript with one Claude call."""
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return JSONResponse({"error": "ANTHROPIC_API_KEY is not set on the server."},
+                            status_code=400)
+    body = await req.json()
+    raw = body.get("transcript", "")
+    if isinstance(raw, list):
+        lines = [f"{t.get('role', 'speaker')}: {t.get('text', '')}".strip() for t in raw]
+        transcript = "\n".join(x for x in lines if x.strip())
+    else:
+        transcript = str(raw)
+    if not transcript.strip():
+        return JSONResponse({"error": "Empty transcript — have a conversation first."},
+                            status_code=400)
+
+    try:
+        from anthropic import AsyncAnthropic           # lazy: never breaks app startup
+        client = AsyncAnthropic()
+        resp = await client.messages.create(
+            model="claude-opus-4-8",
+            max_tokens=4096,
+            system=_EXTRACT_SYSTEM,
+            messages=[{"role": "user", "content": transcript}],
+            output_config={"format": {"type": "json_schema", "schema": _EXTRACT_SCHEMA}},
+        )
+        text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+        data = json.loads(text)
+    except Exception as e:                              # never crash the server mid-demo
+        print(f"[generate] error: {e}", flush=True)
+        return JSONResponse({"error": f"Generation failed: {e}"}, status_code=502)
+
+    prd = _prd_from_extract(data)
+    state.save(session_id, prd)
+    asyncio.create_task(broadcast(session_id))
+    n = (len(prd.requirements) + len(prd.data_models) + len(prd.integrations)
+         + len(prd.compliance) + len(prd.stakeholders) + len(prd.use_cases)
+         + len(prd.milestones) + len(prd.open_questions))
+    print(f"[generate] -> {session_id}: built PRD with {n} items", flush=True)
+    return JSONResponse({"ok": True, "items": n})
+
+
 @app.get("/debug")
 async def debug():
     """Quick 'is it wired up?' check: active session, sockets, per-session item counts.

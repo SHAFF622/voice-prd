@@ -14,3 +14,5 @@ services:
         sync: false
       - key: RPM_AVATAR_URL       # optional: override the bundled Ready Player Me avatar
         sync: false
+      - key: ANTHROPIC_API_KEY    # for "Generate PRD from conversation" (Claude extraction)
+        sync: false

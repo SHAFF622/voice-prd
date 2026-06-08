@@ -85,6 +85,7 @@
   <span class="spacer"></span>
   <div class="mic" id="mic"><span class="dot"></span><span id="micLabel">mic off</span></div>
   <button class="primary" id="callBtn">Start call</button>
+  <button class="primary" id="genBtn">Generate PRD</button>
   <button id="copyBtn">Copy MD</button>
   <button id="exportBtn">Export .md</button>
   <button class="primary" id="pdfBtn">Export PDF</button>
@@ -412,13 +413,15 @@ $("pdfBtn").onclick = () => {
 $("resetBtn").onclick = async () => {
   await fetch(`/api/reset/${sid}`, {method:"POST"});
   $("transcript").innerHTML = `<div class="empty">reset — start a new call</div>`;
-  lastCount = 0; window.SCENE && window.SCENE.reset();
+  lastCount = 0; convo = []; window.SCENE && window.SCENE.reset();
 };
 function toast(msg){ const t=$("toast"); t.textContent=msg; t.classList.add("show");
   setTimeout(()=>t.classList.remove("show"), 1800); }
 
 // ---------------- transcript helpers ----------------
+let convo = [];                       // full transcript, sent to /generate
 function addUtterance(who, text){
+  convo.push({ role: who, text });
   const el = $("transcript");
   if (el.querySelector(".empty")) el.innerHTML = "";
   const d = document.createElement("div");
@@ -426,6 +429,25 @@ function addUtterance(who, text){
   d.innerHTML = `<div class="who">${who}</div>${esc(text)}`;
   el.appendChild(d); el.scrollTop = el.scrollHeight;
 }
+
+// ---------------- Generate PRD from the conversation (LLM, config-proof) ----------------
+$("genBtn").onclick = async () => {
+  if (!convo.length){ toast("Have a conversation first"); return; }
+  $("genBtn").disabled = true;
+  toast("Generating PRD from the conversation…");
+  try {
+    const r = await fetch(`/generate/${sid}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transcript: convo }),
+    });
+    const j = await r.json();
+    toast(j.ok ? `PRD generated — ${j.items} items` : (j.error || "Generation failed"));
+  } catch (e) {
+    toast("Generation failed — see console"); console.error(e);
+  } finally {
+    $("genBtn").disabled = false;
+  }
+};
 
 // ---------------- Vapi voice wiring ----------------
 // Event names verified against the Vapi Web SDK; tweak in README if the SDK shifts.
@@ -441,7 +463,7 @@ $("callBtn").onclick = () => {
   if (vapi){ vapi.stop(); return; }
   vapi = new window.Vapi(VAPI_PUBLIC_KEY);
 
-  vapi.on("call-start", () => { micState("live","listening"); $("callBtn").textContent="End call"; });
+  vapi.on("call-start", () => { micState("live","listening"); $("callBtn").textContent="End call"; convo=[]; });
   vapi.on("call-end",   () => { micState("","mic off"); $("callBtn").textContent="Start call"; vapi=null;
                                 window.SCENE && window.SCENE.calm(); });
   vapi.on("speech-start", () => { micState("speaking","AI speaking"); window.SCENE && window.SCENE.pulse(); });
