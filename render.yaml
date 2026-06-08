@@ -1,0 +1,16 @@
+# Render blueprint — deploy Spectra as a single web service with a stable URL.
+# In Render: New + → Blueprint → pick this repo. Then set the env vars below.
+services:
+  - type: web
+    name: spectra
+    runtime: python
+    plan: free            # $0 — note: spins down on idle (~50s cold start), ephemeral disk
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: VAPI_PUBLIC_KEY      # Vapi PUBLIC/client key (safe to expose); served via /config.js
+        sync: false
+      - key: VAPI_ASSISTANT_ID    # your Vapi assistant id
+        sync: false
+      - key: RPM_AVATAR_URL       # optional: override the bundled Ready Player Me avatar
+        sync: false

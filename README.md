@@ -36,12 +36,40 @@ A card should pop into the open browser tab. `GET /export/demo.md` returns the a
 
 ---
 
-## 2. Expose the webhook with ngrok
+## 2. Give Vapi a reachable webhook URL
 
+The Vapi assistant POSTs tool calls to a **Server URL**. It must be a public HTTPS URL that's
+up whenever you take a call — pick **one** of:
+
+### Option A — Deploy to Render (recommended: stable URL, no local server) ⭐
+A fixed URL that never changes, so the webhook can't go stale (the #1 cause of "the call
+captured nothing / dropped mid-sentence"). `render.yaml` + `runtime.txt` are included.
+
+1. Push this repo to GitHub.
+2. Render → **New + → Blueprint** → pick the repo (it reads `render.yaml`).
+3. Set env vars: `VAPI_PUBLIC_KEY`, `VAPI_ASSISTANT_ID` (and optional `RPM_AVATAR_URL`).
+   The server serves these to the browser via `/config.js`, so no keys are committed.
+4. Deploy → copy the live URL, e.g. `https://spectra.onrender.com`.
+
+- **Dashboard:** `https://<app>.onrender.com/?s=demo`
+- **Vapi tool Server URL:** `https://<app>.onrender.com/vapi/webhook?s=demo`
+  (the `?s=demo` routes every tool call into the `demo` session deterministically).
+- **Health check:** open `https://<app>.onrender.com/debug` — shows the active session and
+  per-session item counts, so you can confirm Vapi is actually writing.
+
+Free-tier caveats: the service **spins down after ~15 min idle** (~50s cold start — open the
+URL once right before a live demo), and SQLite is **ephemeral** (state resets on redeploy; add
+a Render persistent disk or a hosted DB later if you need durability across deploys). Railway
+works the same way with `startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT` and stays
+warm if you want no cold starts.
+
+### Option B — ngrok (local dev only)
 ```bash
 ngrok http 8000
 ```
-Copy the `https://…ngrok…app` URL. Your webhook is that URL + `/vapi/webhook`.
+Copy the `https://…ngrok…app` URL; your webhook is that URL + `/vapi/webhook?s=demo`.
+⚠️ ngrok's free URL **changes every restart** — if you forget to update the Vapi Server URL,
+calls silently capture nothing and may drop. Re-paste it each session, or use Option A.
 
 ---
 
@@ -110,7 +138,10 @@ In the Vapi dashboard:
 
 2. **Assistant → Tools (Functions)**: add the nine custom tools below — these map 1:1 to the
    PRD sections in the export. Set the **Server URL** (assistant-level or per-tool) to your
-   ngrok webhook so Vapi POSTs tool calls to it.
+   reachable webhook from §2, **including the session**, e.g.
+   `https://<app>.onrender.com/vapi/webhook?s=demo` (or the ngrok equivalent). If this URL is
+   wrong/stale, tool calls capture nothing and the call can drop mid-sentence — check
+   `/debug` to confirm writes are landing.
 
 <details><summary>Tool definitions (paste each)</summary>
 

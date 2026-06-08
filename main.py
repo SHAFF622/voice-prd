@@ -202,21 +202,25 @@ async def vapi_webhook(req: Request):
 
     _, calls = parse_tool_calls(body)
     if not calls:
+        print(f"[webhook] {mtype}: no tool calls", flush=True)
         return JSONResponse({})
 
-    # Write to the open dashboard session, not Vapi's call id, so voice + UI + export agree.
-    session_id = _active_session
+    # Route to ?s=<session> when provided (set the Vapi Server URL to .../vapi/webhook?s=demo),
+    # else fall back to the open dashboard session. Deterministic so voice + UI + export agree.
+    session_id = req.query_params.get("s") or _active_session
     prd = state.get(session_id)
     results = []
     for call_id, name, args in calls:
         handler = TOOLS.get(name)
         if handler is None:
+            print(f"[webhook] -> {session_id}: UNKNOWN TOOL {name}", flush=True)
             results.append({"toolCallId": call_id, "result": f"unknown tool: {name}"})
             continue
         try:
             result = handler(prd, **args)
         except Exception as e:               # never 500 mid-demo; report inline
             result = f"error in {name}: {e}"
+        print(f"[webhook] -> {session_id}: {name} :: {result}", flush=True)
         results.append({"toolCallId": call_id, "result": result})
 
     state.save(session_id, prd)
@@ -262,15 +266,38 @@ async def api_reset(session_id: str):
     return JSONResponse({"ok": True})
 
 
+@app.get("/debug")
+async def debug():
+    """Quick 'is it wired up?' check: active session, sockets, per-session item counts.
+    If a real call captured nothing, hit this to see whether the webhook is writing."""
+    def counts(p):
+        return {"requirements": len(p.requirements), "data_models": len(p.data_models),
+                "integrations": len(p.integrations), "compliance": len(p.compliance),
+                "stakeholders": len(p.stakeholders), "use_cases": len(p.use_cases),
+                "milestones": len(p.milestones), "open_questions": len(p.open_questions)}
+    sessions = sorted(set(_sockets) | set(state._cache))
+    return JSONResponse({
+        "active_session": _active_session,
+        "sockets": {s: len(_sockets.get(s, set())) for s in sessions},
+        "sessions": {s: counts(state.get(s)) for s in sessions},
+    })
+
+
 @app.get("/config.js")
 async def config_js():
-    """Serve gitignored static/config.js if present, else empty JS (no 404 on fresh
-    clones). Keeps Vapi keys out of git: edit static/config.js locally."""
+    """Serve gitignored static/config.js if present (local dev). Otherwise build it from env
+    vars (VAPI_PUBLIC_KEY / VAPI_ASSISTANT_ID / RPM_AVATAR_URL) so a hosted deploy gets its
+    keys without committing them — the Vapi public key is a client-side key, safe to expose."""
     path = os.path.join("static", "config.js")
     if os.path.exists(path):
         return FileResponse(path, media_type="application/javascript")
-    return PlainTextResponse("/* no static/config.js — using placeholders */",
-                             media_type="application/javascript")
+    lines = []
+    for var in ("VAPI_PUBLIC_KEY", "VAPI_ASSISTANT_ID", "RPM_AVATAR_URL"):
+        val = os.environ.get(var)
+        if val:
+            lines.append(f"window.{var} = {json.dumps(val)};")
+    body = "\n".join(lines) or "/* no static/config.js and no VAPI_* env vars set */"
+    return PlainTextResponse(body, media_type="application/javascript")
 
 
 # Static dashboard last so it doesn't shadow the API routes above.
